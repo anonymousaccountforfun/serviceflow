@@ -1,0 +1,35 @@
+{
+  "name": "serviceflow",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @serviceflow/database db:generate",
+    "db:push": "pnpm --filter @serviceflow/database db:push",
+    "db:seed": "pnpm --filter @serviceflow/database db:seed",
+    "db:studio": "pnpm --filter @serviceflow/database studio",
+    "db:reset": "pnpm --filter @serviceflow/database db:reset",
+    "setup": "bash scripts/setup.sh",
+    "test:missed-call": "tsx scripts/test-missed-call.ts",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "clean": "turbo run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "prettier": "^3.1.0",
+    "tsx": "^4.7.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

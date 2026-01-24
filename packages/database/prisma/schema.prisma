@@ -1,0 +1,796 @@
+// ServiceFlow Database Schema
+// Prisma ORM with PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ============================================
+// ORGANIZATION & USERS
+// ============================================
+
+model Organization {
+  id                 String             @id @default(cuid())
+  name               String
+  slug               String             @unique
+  phone              String?
+  email              String?
+  timezone           String             @default("America/New_York")
+  settings           Json               @default("{}")
+  subscriptionTier   SubscriptionTier   @default(starter)
+  subscriptionStatus SubscriptionStatus @default(trialing)
+  stripeCustomerId   String?            @unique
+  stripeSubscriptionId String?          @unique
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  // Relations
+  users              User[]
+  customers          Customer[]
+  phoneNumbers       PhoneNumber[]
+  jobs               Job[]
+  conversations      Conversation[]
+  calls              Call[]
+  estimates          Estimate[]
+  invoices           Invoice[]
+  appointments       Appointment[]
+  reviews            Review[]
+  reviewRequests     ReviewRequest[]
+  sequences          Sequence[]
+  sequenceEnrollments SequenceEnrollment[]
+  googleCredential   GoogleCredential?
+
+  @@index([slug])
+  @@index([stripeCustomerId])
+}
+
+enum SubscriptionTier {
+  starter
+  growth
+  scale
+}
+
+enum SubscriptionStatus {
+  active
+  past_due
+  canceled
+  trialing
+}
+
+model User {
+  id             String       @id @default(cuid())
+  organizationId String
+  clerkId        String       @unique
+  email          String
+  firstName      String?
+  lastName       String?
+  phone          String?
+  role           UserRole     @default(technician)
+  avatarUrl      String?
+  isActive       Boolean      @default(true)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  assignedJobs   Job[]        @relation("AssignedTechnician")
+  assignedAppointments Appointment[] @relation("AssignedTechnician")
+  assignedConversations Conversation[] @relation("AssignedAgent")
+  sentMessages   Message[]    @relation("MessageSender")
+
+  @@index([organizationId])
+  @@index([clerkId])
+  @@index([email])
+}
+
+enum UserRole {
+  owner
+  admin
+  technician
+  viewer
+}
+
+// ============================================
+// CUSTOMERS
+// ============================================
+
+model Customer {
+  id             String         @id @default(cuid())
+  organizationId String
+  firstName      String
+  lastName       String
+  email          String?
+  phone          String
+  address        Json?
+  notes          String?
+  tags           String[]       @default([])
+  source         CustomerSource @default(manual)
+  lifetimeValue  Int            @default(0) // cents
+  jobCount       Int            @default(0)
+  lastContactAt  DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  jobs           Job[]
+  conversations  Conversation[]
+  calls          Call[]
+  estimates      Estimate[]
+  invoices       Invoice[]
+  appointments   Appointment[]
+  reviews        Review[]
+  reviewRequests ReviewRequest[]
+  sequenceEnrollments SequenceEnrollment[]
+
+  @@unique([organizationId, phone])
+  @@index([organizationId])
+  @@index([phone])
+  @@index([email])
+  @@index([organizationId, lastName, firstName])
+}
+
+enum CustomerSource {
+  phone_inbound
+  phone_ai
+  sms_inbound
+  web_form
+  referral
+  google
+  yelp
+  manual
+  import
+}
+
+// ============================================
+// TELEPHONY
+// ============================================
+
+model PhoneNumber {
+  id             String          @id @default(cuid())
+  organizationId String
+  number         String          @unique
+  twilioSid      String          @unique
+  type           PhoneNumberType @default(main)
+  label          String?
+  forwardTo      String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+
+  // Relations
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+}
+
+enum PhoneNumberType {
+  main
+  tracking
+  sms_only
+}
+
+// ============================================
+// CONVERSATIONS & MESSAGES
+// ============================================
+
+model Conversation {
+  id             String             @id @default(cuid())
+  organizationId String
+  customerId     String
+  channel        ConversationChannel
+  status         ConversationStatus @default(open)
+  assignedToId   String?
+  lastMessageAt  DateTime           @default(now())
+  aiHandled      Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  // Relations
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedTo     User?              @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  messages       Message[]
+  calls          Call[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([organizationId, status])
+  @@index([lastMessageAt])
+}
+
+enum ConversationChannel {
+  sms
+  phone
+  email
+  web_form
+}
+
+enum ConversationStatus {
+  open
+  pending
+  resolved
+  archived
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  direction      MessageDirection
+  senderType     SenderType
+  senderId       String?
+  content        String
+  contentType    ContentType   @default(text)
+  metadata       Json?
+  status         MessageStatus @default(pending)
+  createdAt      DateTime      @default(now())
+
+  // Relations
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender         User?         @relation("MessageSender", fields: [senderId], references: [id])
+
+  @@index([conversationId])
+  @@index([conversationId, createdAt])
+}
+
+enum MessageDirection {
+  inbound
+  outbound
+}
+
+enum SenderType {
+  customer
+  user
+  ai
+  system
+}
+
+enum ContentType {
+  text
+  image
+  audio
+  document
+}
+
+enum MessageStatus {
+  pending
+  sent
+  delivered
+  read
+  failed
+}
+
+model Call {
+  id               String        @id @default(cuid())
+  conversationId   String?
+  organizationId   String
+  customerId       String?
+  direction        CallDirection
+  status           CallStatus    @default(ringing)
+  from             String
+  to               String
+  duration         Int?          // seconds
+  recordingUrl     String?
+  transcriptUrl    String?
+  transcript       String?
+  summary          String?
+  aiHandled        Boolean       @default(false)
+  textBackSentAt   DateTime?     // When missed call text-back was sent
+  textBackMessageId String?      // Link to the Message that was sent
+  twilioSid        String        @unique
+  vapiCallId       String?       @unique
+  startedAt        DateTime      @default(now())
+  endedAt          DateTime?
+  createdAt        DateTime      @default(now())
+
+  // Relations
+  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([twilioSid])
+  @@index([startedAt])
+}
+
+enum CallDirection {
+  inbound
+  outbound
+}
+
+enum CallStatus {
+  ringing
+  in_progress
+  completed
+  busy
+  no_answer
+  failed
+  voicemail
+}
+
+// ============================================
+// JOBS & ESTIMATES
+// ============================================
+
+model Job {
+  id             String      @id @default(cuid())
+  organizationId String
+  customerId     String
+  assignedToId   String?
+  title          String
+  description    String?
+  type           JobType     @default(repair)
+  status         JobStatus   @default(lead)
+  priority       JobPriority @default(normal)
+  scheduledAt    DateTime?
+  startedAt      DateTime?
+  completedAt    DateTime?
+  estimatedValue Int?        // cents
+  actualValue    Int?        // cents
+  notes          String?
+  photos         Json        @default("[]")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  // Relations
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedTo     User?         @relation("AssignedTechnician", fields: [assignedToId], references: [id])
+  estimates      Estimate[]
+  invoices       Invoice[]
+  appointments   Appointment[]
+  reviews        Review[]
+  reviewRequests ReviewRequest[]
+
+  @@index([organizationId])
+  @@index([customerId])
+  @@index([organizationId, status])
+  @@index([scheduledAt])
+}
+
+enum JobType {
+  repair
+  installation
+  maintenance
+  inspection
+  emergency
+  estimate
+  other
+}
+
+enum JobStatus {
+  lead
+  quoted
+  scheduled
+  in_progress
+  completed
+  canceled
+  on_hold
+}
+
+enum JobPriority {
+  low
+  normal
+  high
+  emergency
+}
+
+model Estimate {
+  id             String         @id @default(cuid())
+  jobId          String
+  organizationId String
+  customerId     String
+  status         EstimateStatus @default(draft)
+  lineItems      Json           @default("[]")
+  subtotal       Int            @default(0) // cents
+  tax            Int            @default(0) // cents
+  total          Int            @default(0) // cents
+  notes          String?
+  validUntil     DateTime?
+  sentAt         DateTime?
+  viewedAt       DateTime?
+  signedAt       DateTime?
+  signatureUrl   String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  job            Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  invoices       Invoice[]
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@index([customerId])
+  @@index([status])
+}
+
+enum EstimateStatus {
+  draft
+  sent
+  viewed
+  signed
+  declined
+  expired
+}
+
+// ============================================
+// INVOICES & PAYMENTS
+// ============================================
+
+model Invoice {
+  id                    String        @id @default(cuid())
+  jobId                 String
+  estimateId            String?
+  organizationId        String
+  customerId            String
+  status                InvoiceStatus @default(draft)
+  lineItems             Json          @default("[]")
+  subtotal              Int           @default(0) // cents
+  tax                   Int           @default(0) // cents
+  total                 Int           @default(0) // cents
+  paidAmount            Int           @default(0) // cents
+  dueDate               DateTime?
+  sentAt                DateTime?
+  paidAt                DateTime?
+  stripeInvoiceId       String?       @unique
+  stripePaymentIntentId String?       @unique
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  // Relations
+  job                   Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  estimate              Estimate?     @relation(fields: [estimateId], references: [id])
+  organization          Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer              Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@index([customerId])
+  @@index([status])
+}
+
+enum InvoiceStatus {
+  draft
+  sent
+  viewed
+  paid
+  partial
+  overdue
+  canceled
+  refunded
+}
+
+// ============================================
+// SCHEDULING
+// ============================================
+
+model Appointment {
+  id              String            @id @default(cuid())
+  jobId           String
+  organizationId  String
+  customerId      String
+  assignedToId    String?
+  scheduledAt     DateTime
+  scheduledEndAt  DateTime
+  status          AppointmentStatus @default(scheduled)
+  reminderSentAt  DateTime?
+  onMyWaySentAt   DateTime?
+  notes           String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  // Relations
+  job             Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer        Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assignedTo      User?             @relation("AssignedTechnician", fields: [assignedToId], references: [id])
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@index([scheduledAt])
+  @@index([organizationId, scheduledAt])
+}
+
+enum AppointmentStatus {
+  scheduled
+  confirmed
+  in_progress
+  completed
+  canceled
+  no_show
+  rescheduled
+}
+
+// ============================================
+// REVIEWS
+// ============================================
+
+model Review {
+  id             String         @id @default(cuid())
+  organizationId String
+  customerId     String?
+  jobId          String?
+  platform       ReviewPlatform
+  externalId     String?
+  rating         Int
+  content        String?
+  reviewerName   String?
+  response       String?
+  respondedAt    DateTime?
+  requestSentAt  DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  // Relations
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer       Customer?      @relation(fields: [customerId], references: [id])
+  job            Job?           @relation(fields: [jobId], references: [id])
+
+  @@unique([organizationId, platform, externalId])
+  @@index([organizationId])
+  @@index([organizationId, platform])
+  @@index([createdAt])
+}
+
+enum ReviewPlatform {
+  google
+  yelp
+  facebook
+  internal
+}
+
+model ReviewRequest {
+  id                String              @id @default(cuid())
+  organizationId    String
+  customerId        String
+  jobId             String
+  status            ReviewRequestStatus @default(pending)
+  sentAt            DateTime?
+  sentimentResponse Int?
+  clickedAt         DateTime?
+  reviewId          String?
+  createdAt         DateTime            @default(now())
+
+  // Relations
+  organization      Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer          Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  job               Job                 @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([jobId])
+  @@index([status])
+}
+
+enum ReviewRequestStatus {
+  pending
+  sent
+  clicked
+  completed
+  declined
+  opted_out
+}
+
+// ============================================
+// GOOGLE BUSINESS PROFILE
+// ============================================
+
+model GoogleCredential {
+  id                String    @id @default(cuid())
+  organizationId    String    @unique
+  accountId         String?   // Google account ID
+  locationId        String?   // GBP location ID (accounts/{accountId}/locations/{locationId})
+  locationName      String?   // Business name from GBP
+  accessToken       String    @db.Text
+  refreshToken      String    @db.Text
+  tokenExpiresAt    DateTime
+  scopes            String[]  @default([])
+  lastSyncAt        DateTime?
+  syncStatus        GoogleSyncStatus @default(pending)
+  syncError         String?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // Relations
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([syncStatus])
+}
+
+enum GoogleSyncStatus {
+  pending
+  syncing
+  synced
+  error
+}
+
+// ============================================
+// SEQUENCES (Automations)
+// ============================================
+
+model Sequence {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  type           SequenceType
+  trigger        Json
+  isActive       Boolean      @default(true)
+  steps          Json         @default("[]")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  // Relations
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  enrollments    SequenceEnrollment[]
+
+  @@index([organizationId])
+  @@index([organizationId, type])
+}
+
+enum SequenceType {
+  estimate_followup
+  review_request
+  payment_reminder
+  appointment_reminder
+  maintenance_reminder
+  custom
+}
+
+model SequenceEnrollment {
+  id               String           @id @default(cuid())
+  sequenceId       String
+  organizationId   String
+  customerId       String
+  referenceId      String           // jobId, estimateId, etc.
+  referenceType    String           // "job", "estimate", etc.
+  status           EnrollmentStatus @default(active)
+  currentStepIndex Int              @default(0)
+  nextStepAt       DateTime?
+  completedAt      DateTime?
+  canceledAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  // Relations
+  sequence         Sequence         @relation(fields: [sequenceId], references: [id], onDelete: Cascade)
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer         Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([sequenceId])
+  @@index([organizationId])
+  @@index([status, nextStepAt])
+}
+
+enum EnrollmentStatus {
+  active
+  completed
+  canceled
+  paused
+}
+
+// ============================================
+// EVENTS (Event Sourcing)
+// ============================================
+
+model Event {
+  id             String   @id @default(cuid())
+  organizationId String
+  type           String   // e.g., "call.missed", "job.completed", "estimate.sent"
+  aggregateType  String   // e.g., "call", "job", "estimate", "customer"
+  aggregateId    String   // ID of the entity this event relates to
+  data           Json     // Event payload
+  metadata       Json?    // Additional context (userId, source, etc.)
+  processedAt    DateTime? // When event was processed by handlers
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([type])
+  @@index([aggregateType, aggregateId])
+  @@index([createdAt])
+  @@index([processedAt])
+  @@index([organizationId, type, createdAt])
+}
+
+// ============================================
+// MESSAGE TEMPLATES
+// ============================================
+
+model MessageTemplate {
+  id             String              @id @default(cuid())
+  organizationId String?             // null = system default
+  name           String
+  type           MessageTemplateType
+  channel        TemplateChannel     @default(sms)
+  subject        String?             // For email
+  content        String              // Supports {{variable}} syntax
+  isActive       Boolean             @default(true)
+  isDefault      Boolean             @default(false)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  @@unique([organizationId, type, isDefault])
+  @@index([organizationId])
+  @@index([type])
+}
+
+enum MessageTemplateType {
+  missed_call_textback
+  missed_call_after_hours
+  review_request
+  review_request_followup
+  review_sentiment_check
+  estimate_sent
+  estimate_followup
+  estimate_expiring
+  appointment_confirmation
+  appointment_reminder
+  appointment_on_my_way
+  invoice_sent
+  invoice_reminder
+  invoice_overdue
+  payment_received
+  maintenance_reminder
+  referral_request
+  welcome
+  custom
+}
+
+enum TemplateChannel {
+  sms
+  email
+  push
+}
+
+// ============================================
+// WEBHOOK LOGS
+// ============================================
+
+model WebhookLog {
+  id             String        @id @default(cuid())
+  organizationId String?
+  provider       String        // "twilio", "stripe", "vapi", etc.
+  eventType      String        // Provider-specific event type
+  externalId     String?       // Provider's event/request ID
+  payload        Json          // Raw webhook payload
+  headers        Json?         // Request headers (for debugging)
+  status         WebhookStatus @default(received)
+  processedAt    DateTime?
+  error          String?
+  createdAt      DateTime      @default(now())
+
+  @@index([provider, eventType])
+  @@index([externalId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+enum WebhookStatus {
+  received
+  processing
+  processed
+  failed
+  ignored
+}
+
+// ============================================
+// SMS OPT-OUTS (TCPA Compliance)
+// ============================================
+
+model SmsOptOut {
+  id             String   @id @default(cuid())
+  organizationId String
+  phone          String
+  optedOutAt     DateTime @default(now())
+  source         String?  // "stop_keyword", "manual", "complaint"
+
+  @@unique([organizationId, phone])
+  @@index([phone])
+}
