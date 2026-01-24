@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "prebuild": "cd ../.. && pnpm --filter=@serviceflow/database exec prisma generate",
+    "postinstall": "prisma generate --schema=../../packages/database/prisma/schema.prisma || true",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
@@ -26,6 +26,7 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
+    "prisma": "^5.7.0",
     "@types/node": "^20.10.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
