@@ -104,7 +104,7 @@ class VapiService {
       throw new Error(`Vapi API error: ${response.status} - ${error}`);
     }
 
-    return response.json();
+    return response.json() as Promise<T>;
   }
 
   /**

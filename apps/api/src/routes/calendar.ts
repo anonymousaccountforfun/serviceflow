@@ -261,7 +261,7 @@ router.get('/availability', async (req, res) => {
       const slotEnd = new Date(currentSlot.getTime() + duration * 60 * 1000);
 
       // Check if this slot conflicts with any existing appointment
-      const hasConflict = existingAppointments.some((apt) => {
+      const hasConflict = existingAppointments.some((apt: { scheduledAt: Date; scheduledEndAt: Date }) => {
         const aptStart = apt.scheduledAt.getTime();
         const aptEnd = apt.scheduledEndAt.getTime();
         const slotStart = currentSlot.getTime();
@@ -338,7 +338,7 @@ router.get('/technicians', async (req, res) => {
 
     // Get appointments for each technician
     const technicianSchedules = await Promise.all(
-      technicians.map(async (tech) => {
+      technicians.map(async (tech: { id: string; firstName: string | null; lastName: string | null; phone: string | null }) => {
         const appointments = await prisma.appointment.findMany({
           where: {
             organizationId: orgId,

@@ -103,7 +103,7 @@ class GoogleBusinessProfileService {
       throw new Error(`Failed to exchange code: ${error}`);
     }
 
-    return response.json();
+    return response.json() as Promise<GoogleTokenResponse>;
   }
 
   /**
@@ -130,7 +130,7 @@ class GoogleBusinessProfileService {
       throw new Error(`Failed to refresh token: ${error}`);
     }
 
-    return response.json();
+    return response.json() as Promise<GoogleTokenResponse>;
   }
 
   /**
@@ -213,7 +213,7 @@ class GoogleBusinessProfileService {
       throw new Error(`Failed to list accounts: ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { accounts?: GBPAccount[] };
     return data.accounts || [];
   }
 
@@ -233,7 +233,7 @@ class GoogleBusinessProfileService {
       throw new Error(`Failed to list locations: ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { locations?: GBPLocation[] };
     return data.locations || [];
   }
 
@@ -283,7 +283,7 @@ class GoogleBusinessProfileService {
       throw new Error(`Failed to get reviews: ${error}`);
     }
 
-    const data = await response.json();
+    const data = await response.json() as { reviews?: GBPReview[] };
     return data.reviews || [];
   }
 

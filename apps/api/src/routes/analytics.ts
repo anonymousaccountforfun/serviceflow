@@ -272,13 +272,13 @@ router.get('/calls', async (req, res) => {
 
     // Transform groupBy results to objects
     const statusCounts: Record<string, number> = {};
-    byStatus.forEach((s) => { statusCounts[s.status] = s._count; });
+    byStatus.forEach((s: { status: string; _count: number }) => { statusCounts[s.status] = s._count; });
 
     const directionCounts: Record<string, number> = {};
-    byDirection.forEach((d) => { directionCounts[d.direction] = d._count; });
+    byDirection.forEach((d: { direction: string; _count: number }) => { directionCounts[d.direction] = d._count; });
 
     const aiCounts = { human: 0, ai: 0 };
-    aiHandled.forEach((a) => {
+    aiHandled.forEach((a: { aiHandled: boolean; _count: number }) => {
       if (a.aiHandled) aiCounts.ai = a._count;
       else aiCounts.human = a._count;
     });
@@ -364,7 +364,7 @@ router.get('/revenue', async (req, res) => {
 
     // Transform byType
     const revenueByType: Record<string, { revenue: number; count: number }> = {};
-    byType.forEach((t) => {
+    byType.forEach((t: { type: string; _sum: { actualValue: number | null }; _count: number }) => {
       revenueByType[t.type] = {
         revenue: t._sum.actualValue || 0,
         count: t._count,
@@ -373,7 +373,7 @@ router.get('/revenue', async (req, res) => {
 
     // Transform byStatus
     const jobsByStatus: Record<string, number> = {};
-    byStatus.forEach((s) => { jobsByStatus[s.status] = s._count; });
+    byStatus.forEach((s: { status: string; _count: number }) => { jobsByStatus[s.status] = s._count; });
 
     res.json({
       success: true,
@@ -449,7 +449,7 @@ router.get('/customers', async (req, res) => {
 
     // Transform bySource
     const customersBySource: Record<string, number> = {};
-    bySource.forEach((s) => {
+    bySource.forEach((s: { source: string | null; _count: number }) => {
       customersBySource[s.source || 'unknown'] = s._count;
     });
 
@@ -522,13 +522,13 @@ router.get('/conversations', async (req, res) => {
 
     // Transform results
     const conversationsByStatus: Record<string, number> = {};
-    byStatus.forEach((s) => { conversationsByStatus[s.status] = s._count; });
+    byStatus.forEach((s: { status: string; _count: number }) => { conversationsByStatus[s.status] = s._count; });
 
     const conversationsByChannel: Record<string, number> = {};
-    byChannel.forEach((c) => { conversationsByChannel[c.channel] = c._count; });
+    byChannel.forEach((c: { channel: string; _count: number }) => { conversationsByChannel[c.channel] = c._count; });
 
     const messages = { inbound: 0, outbound: 0 };
-    messageStats.forEach((m) => {
+    messageStats.forEach((m: { direction: string; _count: number }) => {
       if (m.direction === 'inbound') messages.inbound = m._count;
       else messages.outbound = m._count;
     });
