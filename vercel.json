@@ -1,0 +1,6 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npx prisma generate --schema=packages/database/prisma/schema.prisma && npx turbo run build --filter=@serviceflow/web",
+  "installCommand": "npm install",
+  "outputDirectory": "apps/web/.next"
+}
