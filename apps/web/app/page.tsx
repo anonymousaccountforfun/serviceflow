@@ -8,18 +8,18 @@ export default function HomePage() {
       <header className="border-b">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex h-16 items-center justify-between">
-            <div className="flex items-center">
+            <Link href="/" className="flex items-center">
               <span className="text-2xl font-bold text-brand-600">ServiceFlow</span>
-            </div>
+            </Link>
             <div className="flex items-center gap-4">
               <Link
-                href="/sign-in"
+                href="/dashboard"
                 className="text-sm font-medium text-gray-700 hover:text-gray-900"
               >
                 Sign in
               </Link>
               <Link
-                href="/sign-up"
+                href="/dashboard"
                 className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
               >
                 Get Started
@@ -45,16 +45,16 @@ export default function HomePage() {
             </p>
             <div className="mt-10 flex items-center justify-center gap-4">
               <Link
-                href="/sign-up"
+                href="/dashboard"
                 className="rounded-lg bg-brand-600 px-6 py-3 text-base font-semibold text-white shadow-sm hover:bg-brand-700"
               >
                 Start Free Trial
               </Link>
               <Link
-                href="#demo"
+                href="#features"
                 className="rounded-lg border border-gray-300 px-6 py-3 text-base font-semibold text-gray-700 hover:bg-gray-50"
               >
-                Watch Demo
+                See Features
               </Link>
             </div>
             <p className="mt-4 text-sm text-gray-500">
@@ -65,7 +65,7 @@ export default function HomePage() {
       </section>
 
       {/* Features */}
-      <section className="bg-gray-50 py-20">
+      <section id="features" className="bg-gray-50 py-20">
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="text-center">
             <h2 className="text-3xl font-bold text-gray-900">
@@ -191,7 +191,7 @@ export default function HomePage() {
             Join 50+ plumbers in Nassau County already using ServiceFlow.
           </p>
           <Link
-            href="/sign-up"
+            href="/dashboard"
             className="mt-8 inline-block rounded-lg bg-white px-6 py-3 text-base font-semibold text-brand-600 shadow-sm hover:bg-brand-50"
           >
             Start Your Free Trial
@@ -299,7 +299,7 @@ function PricingCard({
         ))}
       </ul>
       <Link
-        href="/sign-up"
+        href="/dashboard"
         className={`mt-8 block w-full rounded-lg py-2.5 text-center text-sm font-semibold ${
           highlighted
             ? 'bg-white text-brand-600 hover:bg-brand-50'
