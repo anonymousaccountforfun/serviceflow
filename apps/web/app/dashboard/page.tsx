@@ -3,224 +3,369 @@
 import { useQuery } from '@tanstack/react-query';
 import {
   Phone,
+  PhoneOff,
   PhoneIncoming,
-  PhoneMissed,
-  Bot,
   DollarSign,
-  Users,
-  Briefcase,
-  MessageSquare,
   TrendingUp,
   TrendingDown,
-  ArrowRight
+  Calendar,
+  AlertTriangle,
+  ArrowRight,
+  Plus,
+  Briefcase,
+  MessageSquare,
+  CheckCircle2,
+  Users
 } from 'lucide-react';
 import Link from 'next/link';
 import { api } from '../../lib/api';
 
-function StatCard({
-  title,
+// Large metric display component
+function MetricBlock({
+  label,
   value,
-  change,
-  changeLabel,
+  subValue,
+  trend,
+  trendLabel,
+  variant = 'default',
   icon: Icon,
-  href,
 }: {
-  title: string;
+  label: string;
   value: string | number;
-  change?: number;
-  changeLabel?: string;
-  icon: any;
-  href?: string;
+  subValue?: string;
+  trend?: number | null;
+  trendLabel?: string;
+  variant?: 'default' | 'success' | 'danger' | 'accent';
+  icon?: React.ComponentType<{ className?: string }>;
 }) {
-  const content = (
-    <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-sm font-medium text-gray-500">{title}</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
-          {change !== undefined && (
-            <div className="flex items-center gap-1 mt-2">
-              {change >= 0 ? (
-                <TrendingUp className="w-4 h-4 text-green-500" />
-              ) : (
-                <TrendingDown className="w-4 h-4 text-red-500" />
-              )}
-              <span className={`text-sm font-medium ${change >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {change >= 0 ? '+' : ''}{change}%
-              </span>
-              {changeLabel && (
-                <span className="text-sm text-gray-500">{changeLabel}</span>
-              )}
-            </div>
+  const variantStyles = {
+    default: 'bg-surface',
+    success: 'bg-success/10 border-l-4 border-success',
+    danger: 'bg-danger/10 border-l-4 border-danger',
+    accent: 'bg-accent/10 border-l-4 border-accent',
+  };
+
+  return (
+    <div className={`${variantStyles[variant]} rounded-lg p-5 lg:p-6`}>
+      <div className="flex items-start justify-between mb-3">
+        <span className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+          {label}
+        </span>
+        {Icon && <Icon className="w-5 h-5 text-gray-500" />}
+      </div>
+      <div className="flex items-end gap-3">
+        <span className="text-5xl lg:text-6xl font-bold text-white tabular-nums">
+          {value}
+        </span>
+        {subValue && (
+          <span className="text-lg text-gray-500 mb-2">{subValue}</span>
+        )}
+      </div>
+      {trend !== undefined && trend !== null && (
+        <div className="flex items-center gap-1 mt-3">
+          {trend >= 0 ? (
+            <TrendingUp className="w-4 h-4 text-green-500" />
+          ) : (
+            <TrendingDown className="w-4 h-4 text-red-500" />
+          )}
+          <span className={`text-sm font-medium ${trend >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+            {trend > 0 ? '+' : ''}{trend}%
+          </span>
+          {trendLabel && (
+            <span className="text-sm text-gray-500 ml-1">{trendLabel}</span>
           )}
         </div>
-        <div className="p-3 bg-brand-50 rounded-lg">
-          <Icon className="w-6 h-6 text-brand-600" />
-        </div>
-      </div>
-      {href && (
-        <Link href={href} className="flex items-center gap-1 text-sm text-brand-600 mt-4 font-medium hover:underline">
-          View details <ArrowRight className="w-4 h-4" />
-        </Link>
       )}
     </div>
   );
-
-  return href ? content : content;
 }
 
-function RecentActivity({ title, items, emptyMessage }: {
-  title: string;
-  items: any[];
-  emptyMessage: string;
-}) {
+// Call stats with visual split bar
+function CallStats({ answered, missed }: { answered: number; missed: number }) {
+  const total = answered + missed;
+  const answeredPercent = total > 0 ? (answered / total) * 100 : 100;
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">{title}</h3>
-      {items.length === 0 ? (
-        <p className="text-gray-500 text-sm">{emptyMessage}</p>
-      ) : (
-        <div className="space-y-3">
-          {items.slice(0, 5).map((item, i) => (
-            <div key={i} className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0">
-              <div className="w-2 h-2 rounded-full bg-brand-500" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-gray-900 truncate">{item.title || item.name}</p>
-                <p className="text-xs text-gray-500">{item.subtitle || item.time}</p>
-              </div>
-            </div>
-          ))}
+    <div className="bg-surface rounded-lg p-5 lg:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+          Today's Calls
+        </span>
+        <Phone className="w-5 h-5 text-gray-500" />
+      </div>
+
+      {/* Large total */}
+      <div className="text-6xl lg:text-7xl font-bold text-white tabular-nums mb-6">
+        {total}
+      </div>
+
+      {/* Split bar visualization */}
+      <div className="h-3 bg-navy-800 rounded-full overflow-hidden flex mb-4">
+        <div
+          className="bg-green-500 transition-all duration-500"
+          style={{ width: `${answeredPercent}%` }}
+        />
+        <div
+          className="bg-red-500 transition-all duration-500"
+          style={{ width: `${100 - answeredPercent}%` }}
+        />
+      </div>
+
+      {/* Side by side stats */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-lg bg-green-500/20 flex items-center justify-center">
+            <PhoneIncoming className="w-6 h-6 text-green-500" />
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-white tabular-nums">{answered}</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Answered</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <div className="w-12 h-12 rounded-lg bg-red-500/20 flex items-center justify-center">
+            <PhoneOff className="w-6 h-6 text-red-500" />
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-white tabular-nums">{missed}</p>
+            <p className="text-xs text-gray-500 uppercase tracking-wide">Missed</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Revenue display - prominent
+function RevenueBlock({ amount, trend }: { amount: number; trend?: number | null }) {
+  const formatted = (amount / 100).toLocaleString('en-US', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
+
+  return (
+    <div className="bg-gradient-to-br from-orange-500/20 to-orange-500/5 border border-orange-500/30 rounded-lg p-5 lg:p-6">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-semibold text-orange-400 uppercase tracking-wide">
+          Revenue This Month
+        </span>
+        <DollarSign className="w-5 h-5 text-orange-400" />
+      </div>
+      <div className="flex items-baseline gap-1">
+        <span className="text-3xl text-orange-400 font-bold">$</span>
+        <span className="text-6xl lg:text-7xl font-bold text-white tabular-nums">{formatted}</span>
+      </div>
+      {trend !== undefined && trend !== null && (
+        <div className="flex items-center gap-1 mt-4">
+          {trend >= 0 ? (
+            <TrendingUp className="w-4 h-4 text-green-500" />
+          ) : (
+            <TrendingDown className="w-4 h-4 text-red-500" />
+          )}
+          <span className={`text-sm font-medium ${trend >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+            {trend > 0 ? '+' : ''}{trend}% vs last month
+          </span>
         </div>
       )}
+    </div>
+  );
+}
+
+// Action required section
+function ActionRequired({ jobs }: { jobs: any[] }) {
+  if (jobs.length === 0) return null;
+
+  return (
+    <div className="bg-yellow-500/10 border-l-4 border-yellow-500 rounded-lg p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <AlertTriangle className="w-5 h-5 text-yellow-500" />
+        <span className="text-sm font-semibold text-yellow-500 uppercase tracking-wide">
+          Needs Attention
+        </span>
+      </div>
+      <div className="space-y-3">
+        {jobs.slice(0, 3).map((job) => (
+          <Link
+            key={job.id}
+            href={`/dashboard/jobs/${job.id}`}
+            className="flex items-center justify-between p-3 bg-navy-900/50 rounded-lg hover:bg-navy-800 transition-colors min-h-[44px]"
+          >
+            <div>
+              <p className="text-white font-medium">{job.title}</p>
+              <p className="text-sm text-gray-500">{job.customer?.firstName} {job.customer?.lastName}</p>
+            </div>
+            <ArrowRight className="w-4 h-4 text-gray-500" />
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// Empty state with action
+function EmptyState({
+  icon: Icon,
+  title,
+  description,
+  actionLabel,
+  actionHref,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  actionLabel: string;
+  actionHref: string;
+}) {
+  return (
+    <div className="bg-surface rounded-lg p-8 text-center">
+      <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mx-auto mb-4">
+        <Icon className="w-8 h-8 text-gray-500" />
+      </div>
+      <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
+      <p className="text-gray-500 mb-6 max-w-sm mx-auto">{description}</p>
+      <Link
+        href={actionHref}
+        className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px]"
+      >
+        <Plus className="w-4 h-4" />
+        {actionLabel}
+      </Link>
+    </div>
+  );
+}
+
+// Quick action buttons
+function QuickActions() {
+  return (
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <Link
+        href="/dashboard/jobs"
+        className="flex items-center gap-3 p-4 bg-surface rounded-lg hover:bg-surface-light transition-colors min-h-[56px]"
+      >
+        <div className="w-10 h-10 rounded-lg bg-orange-500/20 flex items-center justify-center">
+          <Plus className="w-5 h-5 text-orange-500" />
+        </div>
+        <span className="text-sm font-semibold text-white">New Job</span>
+      </Link>
+      <Link
+        href="/dashboard/calendar"
+        className="flex items-center gap-3 p-4 bg-surface rounded-lg hover:bg-surface-light transition-colors min-h-[56px]"
+      >
+        <div className="w-10 h-10 rounded-lg bg-navy-700 flex items-center justify-center">
+          <Calendar className="w-5 h-5 text-gray-400" />
+        </div>
+        <span className="text-sm font-semibold text-white">Schedule</span>
+      </Link>
+      <Link
+        href="/dashboard/inbox"
+        className="flex items-center gap-3 p-4 bg-surface rounded-lg hover:bg-surface-light transition-colors min-h-[56px]"
+      >
+        <div className="w-10 h-10 rounded-lg bg-navy-700 flex items-center justify-center">
+          <MessageSquare className="w-5 h-5 text-gray-400" />
+        </div>
+        <span className="text-sm font-semibold text-white">Messages</span>
+      </Link>
+      <Link
+        href="/dashboard/customers"
+        className="flex items-center gap-3 p-4 bg-surface rounded-lg hover:bg-surface-light transition-colors min-h-[56px]"
+      >
+        <div className="w-10 h-10 rounded-lg bg-navy-700 flex items-center justify-center">
+          <Users className="w-5 h-5 text-gray-400" />
+        </div>
+        <span className="text-sm font-semibold text-white">Customers</span>
+      </Link>
     </div>
   );
 }
 
 export default function DashboardPage() {
-  const { data: overview, isLoading } = useQuery({
+  const { data: analytics } = useQuery({
     queryKey: ['analytics', 'overview'],
     queryFn: () => api.getAnalyticsOverview(),
   });
 
   const { data: jobsData } = useQuery({
-    queryKey: ['jobs', 'recent'],
-    queryFn: () => api.getJobs({ page: 1 }),
+    queryKey: ['jobs', 'pending'],
+    queryFn: () => api.getJobs({ status: 'lead', limit: 5 }),
   });
 
-  const { data: conversationsData } = useQuery({
-    queryKey: ['conversations', 'recent'],
-    queryFn: () => api.getConversations({ page: 1 }),
-  });
+  const stats = analytics?.data || {};
+  const pendingJobs = jobsData?.data || [];
 
-  const stats = overview?.data || {};
+  const callsAnswered = stats?.calls?.answered || 0;
+  const callsMissed = stats?.calls?.missed || 0;
+  const revenue = stats?.revenue?.total || 0;
+  const revenueTrend = stats?.revenue?.change || null;
+  const jobsCompleted = stats?.jobs?.completed || 0;
+  const jobsTrend = stats?.jobs?.change || null;
+  const newCustomers = stats?.customers?.new || 0;
+  const customersTrend = stats?.customers?.change || null;
+
+  const hasData = callsAnswered > 0 || callsMissed > 0 || revenue > 0;
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <p className="text-gray-500 mt-1">Welcome back! Here's what's happening today.</p>
+      {/* Quick Actions */}
+      <QuickActions />
+
+      {/* Primary Metrics Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Calls - Most important for immediate awareness */}
+        <CallStats answered={callsAnswered} missed={callsMissed} />
+
+        {/* Revenue - The number they care about most */}
+        <RevenueBlock amount={revenue} trend={revenueTrend} />
+
+        {/* Jobs completed */}
+        <MetricBlock
+          label="Jobs Completed"
+          value={jobsCompleted}
+          subValue="this week"
+          trend={jobsTrend}
+          trendLabel="vs last week"
+          icon={CheckCircle2}
+          variant="success"
+        />
       </div>
 
-      {/* Stats Grid */}
-      {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-white rounded-xl border border-gray-200 p-6 animate-pulse">
-              <div className="h-4 bg-gray-200 rounded w-24 mb-2" />
-              <div className="h-8 bg-gray-200 rounded w-16" />
+      {/* Secondary Row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Action Required */}
+        {pendingJobs.length > 0 ? (
+          <ActionRequired jobs={pendingJobs} />
+        ) : (
+          <div className="bg-surface rounded-lg p-5 lg:p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <CheckCircle2 className="w-5 h-5 text-green-500" />
+              <span className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+                All Caught Up
+              </span>
             </div>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatCard
-            title="Total Calls"
-            value={stats.calls?.total || 0}
-            change={stats.calls?.changePercent}
-            changeLabel="vs last period"
-            icon={Phone}
-          />
-          <StatCard
-            title="AI Handled"
-            value={stats.calls?.aiHandled || 0}
-            icon={Bot}
-          />
-          <StatCard
-            title="Revenue"
-            value={stats.revenue?.formatted || '$0'}
-            change={stats.revenue?.changePercent}
-            changeLabel="vs last period"
-            icon={DollarSign}
-            href="/dashboard/jobs"
-          />
-          <StatCard
-            title="New Customers"
-            value={stats.customers?.new || 0}
-            change={stats.customers?.changePercent}
-            changeLabel="vs last period"
-            icon={Users}
-            href="/dashboard/customers"
-          />
-        </div>
+            <p className="text-gray-500">No pending items need your attention right now.</p>
+          </div>
+        )}
+
+        {/* New Customers */}
+        <MetricBlock
+          label="New Customers"
+          value={newCustomers}
+          subValue="this week"
+          trend={customersTrend}
+          trendLabel="vs last week"
+          icon={Users}
+        />
+      </div>
+
+      {/* Empty State for new users */}
+      {!hasData && (
+        <EmptyState
+          icon={Briefcase}
+          title="Ready to get started?"
+          description="Create your first job to start tracking your work and see your metrics come to life."
+          actionLabel="Create First Job"
+          actionHref="/dashboard/jobs"
+        />
       )}
-
-      {/* Call Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-green-100 rounded-lg">
-              <PhoneIncoming className="w-5 h-5 text-green-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.calls?.answered || 0}</p>
-              <p className="text-sm text-gray-500">Answered Calls</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-red-100 rounded-lg">
-              <PhoneMissed className="w-5 h-5 text-red-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.calls?.missed || 0}</p>
-              <p className="text-sm text-gray-500">Missed Calls</p>
-            </div>
-          </div>
-        </div>
-        <div className="bg-white rounded-xl border border-gray-200 p-6">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-brand-100 rounded-lg">
-              <MessageSquare className="w-5 h-5 text-brand-600" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{stats.conversations?.total || 0}</p>
-              <p className="text-sm text-gray-500">Conversations</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <RecentActivity
-          title="Recent Jobs"
-          items={(jobsData?.data || []).map((job: any) => ({
-            title: job.title,
-            subtitle: `${job.customer?.firstName} ${job.customer?.lastName} - ${job.status}`,
-          }))}
-          emptyMessage="No recent jobs"
-        />
-        <RecentActivity
-          title="Recent Conversations"
-          items={(conversationsData?.data || []).map((conv: any) => ({
-            title: `${conv.customer?.firstName} ${conv.customer?.lastName}`,
-            subtitle: conv.messages?.[0]?.content?.slice(0, 50) || 'No messages',
-          }))}
-          emptyMessage="No recent conversations"
-        />
-      </div>
     </div>
   );
 }

@@ -12,7 +12,8 @@ import {
   Settings,
   LogOut,
   Menu,
-  X
+  X,
+  ChevronRight
 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Providers } from '../../lib/providers';
@@ -35,25 +36,33 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
       {/* Mobile overlay */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/70 z-40 lg:hidden"
           onClick={onClose}
         />
       )}
 
-      {/* Sidebar - Fixed on all screen sizes */}
+      {/* Sidebar */}
       <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200
+        fixed inset-y-0 left-0 z-50 w-64 bg-navy-950
         transform transition-transform duration-200 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-            <Link href="/dashboard" className="text-xl font-bold text-brand-600">
-              ServiceFlow
+          <div className="flex items-center justify-between h-16 px-5">
+            <Link href="/dashboard" className="flex items-center gap-2">
+              <div className="w-8 h-8 bg-accent rounded flex items-center justify-center">
+                <span className="text-white font-bold text-lg">S</span>
+              </div>
+              <span className="text-lg font-bold text-white tracking-tight">
+                ServiceFlow
+              </span>
             </Link>
-            <button onClick={onClose} className="lg:hidden p-1 hover:bg-gray-100 rounded">
-              <X className="w-5 h-5" />
+            <button
+              onClick={onClose}
+              className="lg:hidden p-2 hover:bg-white/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
+            >
+              <X className="w-5 h-5 text-white" />
             </button>
           </div>
 
@@ -70,32 +79,33 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
                   href={item.href}
                   onClick={onClose}
                   className={`
-                    flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium
-                    transition-colors duration-150
+                    flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold
+                    transition-all duration-150 min-h-[44px]
                     ${isActive
-                      ? 'bg-brand-50 text-brand-600'
-                      : 'text-gray-700 hover:bg-gray-100'
+                      ? 'bg-accent text-white'
+                      : 'text-gray-400 hover:bg-white/5 hover:text-white'
                     }
                   `}
                 >
-                  <Icon className="w-5 h-5" />
-                  {item.label}
+                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  <span className="flex-1">{item.label}</span>
+                  {isActive && <ChevronRight className="w-4 h-4" />}
                 </Link>
               );
             })}
           </nav>
 
           {/* Bottom section */}
-          <div className="px-3 py-4 border-t border-gray-200 space-y-1">
+          <div className="px-3 py-4 border-t border-white/10 space-y-1">
             <Link
               href="/dashboard/settings"
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100"
+              className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold text-gray-400 hover:bg-white/5 hover:text-white transition-all min-h-[44px]"
             >
               <Settings className="w-5 h-5" />
               Settings
             </Link>
             <button
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 w-full text-left"
+              className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold text-gray-400 hover:bg-white/5 hover:text-white transition-all w-full text-left min-h-[44px]"
             >
               <LogOut className="w-5 h-5" />
               Sign out
@@ -114,34 +124,36 @@ export default function DashboardLayout({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Set org ID for API calls (in real app, get from Clerk/auth)
   useEffect(() => {
-    // TODO: Get from authenticated user's organization
     api.setOrganizationId('cmkronue4000hi6rizqpmgab6');
   }, []);
 
   return (
     <Providers>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-navy-900">
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-        {/* Main content - offset by sidebar width on large screens */}
+        {/* Main content */}
         <div className="lg:ml-64 min-h-screen flex flex-col">
-          {/* Top bar */}
-          <header className="sticky top-0 z-30 h-16 bg-white border-b border-gray-200 flex items-center px-4 lg:px-6">
+          {/* Top bar - minimal */}
+          <header className="sticky top-0 z-30 h-14 bg-navy-950/90 backdrop-blur-sm border-b border-white/5 flex items-center px-4 lg:px-6">
             <button
               onClick={() => setSidebarOpen(true)}
-              className="lg:hidden p-2 -ml-2 hover:bg-gray-100 rounded-lg"
+              className="lg:hidden p-2 hover:bg-white/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
             >
-              <Menu className="w-5 h-5" />
+              <Menu className="w-5 h-5 text-white" />
             </button>
 
             <div className="flex-1" />
 
-            {/* User menu placeholder */}
+            {/* User indicator */}
             <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center">
-                <span className="text-sm font-medium text-brand-600">M</span>
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-medium text-white">Mike's Plumbing</p>
+                <p className="text-xs text-gray-500">Pro Plan</p>
+              </div>
+              <div className="w-9 h-9 rounded-lg bg-accent flex items-center justify-center">
+                <span className="text-sm font-bold text-white">MP</span>
               </div>
             </div>
           </header>
