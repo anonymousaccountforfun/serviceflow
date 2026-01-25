@@ -2,8 +2,10 @@ import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
 
-const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+// TODO: Move to cloud storage (Vercel Blob, S3, or Cloudinary) for production
+// Storing base64 in database is not ideal for performance at scale
+const MAX_FILE_SIZE = 200 * 1024; // 200KB - small to avoid database bloat
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
 // POST /api/users/me/avatar - Upload avatar image
 export async function POST(request: Request) {
@@ -41,7 +43,7 @@ export async function POST(request: Request) {
     // Validate file type
     if (!ALLOWED_TYPES.includes(file.type)) {
       return NextResponse.json(
-        { error: { message: 'Invalid file type. Please upload a JPEG, PNG, GIF, or WebP image.' } },
+        { error: { message: 'Invalid file type. Please upload a JPEG, PNG, or WebP image.' } },
         { status: 400 }
       );
     }
@@ -49,7 +51,7 @@ export async function POST(request: Request) {
     // Validate file size
     if (file.size > MAX_FILE_SIZE) {
       return NextResponse.json(
-        { error: { message: 'File too large. Maximum size is 5MB.' } },
+        { error: { message: 'File too large. Maximum size is 200KB. Please resize your image.' } },
         { status: 400 }
       );
     }

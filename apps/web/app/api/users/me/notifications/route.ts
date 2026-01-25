@@ -126,14 +126,11 @@ export async function PUT(request: Request) {
     };
 
     // Update user settings
-    // Note: This assumes User model has a settings JSON field
-    // If not, you may need to create a UserPreferences table
+    // Store notification preferences in the settings JSON field
     await prisma.user.update({
       where: { id: user.id },
       data: {
-        // If settings field exists on User model:
-        // settings: updatedSettings,
-        // Otherwise, store in a related table or add the field to schema
+        settings: updatedSettings,
       } as any,
     });
 

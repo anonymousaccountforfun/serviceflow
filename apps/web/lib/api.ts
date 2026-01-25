@@ -18,31 +18,25 @@ import type {
   PhoneStatus,
   AvailablePhoneNumber,
 } from './types';
+import type { ApiResponse, ApiError } from '@serviceflow/shared';
+
+// Re-export for convenience
+export type { ApiResponse, ApiError };
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 interface CalendarSlot {
-  date: string;
-  time: string;
+  start: string;
+  end: string;
   available: boolean;
 }
 
 interface GoogleStatus {
   connected: boolean;
+  locationName?: string;
+  lastSyncAt?: string;
   email?: string;
-  reviewsEnabled: boolean;
-}
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
-
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  error?: { code: string; message: string };
-  meta?: {
-    page: number;
-    perPage: number;
-    total: number;
-    totalPages: number;
-  };
+  reviewsEnabled?: boolean;
 }
 
 interface AnalyticsOverview {
@@ -97,18 +91,6 @@ interface DashboardData {
       city?: string;
     };
   }>;
-}
-
-interface CalendarSlot {
-  start: string;
-  end: string;
-  available: boolean;
-}
-
-interface GoogleStatus {
-  connected: boolean;
-  locationName?: string;
-  lastSyncAt?: string;
 }
 
 class ApiClient {

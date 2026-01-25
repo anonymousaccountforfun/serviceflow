@@ -513,6 +513,30 @@ export default function OnboardingPage() {
     }
   };
 
+  const handleSkip = async () => {
+    setIsSubmitting(true);
+    try {
+      const response = await fetch('/api/onboarding/skip', {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to skip onboarding');
+      }
+
+      // Refresh auth context to get updated org settings
+      await refetch();
+
+      // Redirect to dashboard
+      router.push('/dashboard');
+    } catch (error) {
+      console.error('Skip onboarding error:', error);
+      alert('Failed to skip setup. Please try again.');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-navy-900 flex items-center justify-center p-4">
       <div className="w-full max-w-lg">
@@ -591,10 +615,11 @@ export default function OnboardingPage() {
         <p className="text-center text-gray-500 text-sm mt-6">
           <button
             type="button"
-            onClick={() => router.push('/dashboard')}
-            className="hover:text-gray-400 transition-colors"
+            onClick={handleSkip}
+            disabled={isSubmitting}
+            className="hover:text-gray-400 transition-colors disabled:opacity-50"
           >
-            Skip for now
+            {isSubmitting ? 'Skipping...' : 'Skip for now'}
           </button>
         </p>
       </div>

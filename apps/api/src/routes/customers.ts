@@ -1,19 +1,20 @@
 import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
-import { createCustomerSchema, updateCustomerSchema, paginationSchema } from '@serviceflow/shared';
+import { createCustomerSchema, updateCustomerSchema, customerPaginationSchema } from '@serviceflow/shared';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
 // GET /api/customers - List customers
 router.get('/', async (req, res) => {
   try {
-    const { page, perPage, sortBy, sortOrder } = paginationSchema.parse(req.query);
+    const { page, perPage, sortBy, sortOrder } = customerPaginationSchema.parse(req.query);
     const orgId = req.auth!.organizationId;
 
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
         where: { organizationId: orgId },
-        orderBy: { [sortBy || 'createdAt']: sortOrder },
+        orderBy: { [sortBy]: sortOrder },
         skip: (page - 1) * perPage,
         take: perPage,
       }),
@@ -31,7 +32,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing customers:', error);
+    logger.error('Error listing customers', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list customers' },
@@ -63,7 +64,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: customer });
   } catch (error) {
-    console.error('Error getting customer:', error);
+    logger.error('Error getting customer', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get customer' },
@@ -93,7 +94,7 @@ router.post('/', async (req, res) => {
         error: { code: 'E3002', message: 'Customer with this phone already exists' },
       });
     }
-    console.error('Error creating customer:', error);
+    logger.error('Error creating customer', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to create customer' },
@@ -123,7 +124,7 @@ router.patch('/:id', async (req, res) => {
     const updated = await prisma.customer.findUnique({ where: { id } });
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error updating customer:', error);
+    logger.error('Error updating customer', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update customer' },
@@ -150,7 +151,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ success: true, data: { deleted: true } });
   } catch (error) {
-    console.error('Error deleting customer:', error);
+    logger.error('Error deleting customer', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to delete customer' },

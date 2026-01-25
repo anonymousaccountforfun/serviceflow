@@ -1,14 +1,15 @@
 import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
-import { createJobSchema, updateJobSchema, paginationSchema } from '@serviceflow/shared';
+import { createJobSchema, updateJobSchema, jobPaginationSchema } from '@serviceflow/shared';
 import { events, JobCompletedEventData } from '../services/events';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
 // GET /api/jobs - List jobs
 router.get('/', async (req, res) => {
   try {
-    const { page, perPage, sortBy, sortOrder } = paginationSchema.parse(req.query);
+    const { page, perPage, sortBy, sortOrder } = jobPaginationSchema.parse(req.query);
     const orgId = req.auth!.organizationId;
     const status = req.query.status as string | undefined;
     const customerId = req.query.customerId as string | undefined;
@@ -24,7 +25,7 @@ router.get('/', async (req, res) => {
           customer: { select: { firstName: true, lastName: true, phone: true } },
           assignedTo: { select: { firstName: true, lastName: true } },
         },
-        orderBy: { [sortBy || 'createdAt']: sortOrder },
+        orderBy: { [sortBy]: sortOrder },
         skip: (page - 1) * perPage,
         take: perPage,
       }),
@@ -42,7 +43,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing jobs:', error);
+    logger.error('Error listing jobs', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list jobs' },
@@ -76,7 +77,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: job });
   } catch (error) {
-    console.error('Error getting job:', error);
+    logger.error('Error getting job', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get job' },
@@ -117,7 +118,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({ success: true, data: job });
   } catch (error) {
-    console.error('Error creating job:', error);
+    logger.error('Error creating job', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to create job' },
@@ -177,7 +178,7 @@ router.patch('/:id', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error updating job:', error);
+    logger.error('Error updating job', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update job' },
@@ -204,7 +205,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ success: true, data: { deleted: true } });
   } catch (error) {
-    console.error('Error deleting job:', error);
+    logger.error('Error deleting job', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to delete job' },

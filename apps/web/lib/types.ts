@@ -240,24 +240,16 @@ export interface Review {
 // API RESPONSE TYPES
 // ============================================
 
-export interface ApiResponse<T> {
-  data: T;
-  meta?: PaginationMeta;
-  success?: boolean;
-  error?: ApiError;
-}
+// Import shared types (avoid duplication)
+export type { ApiResponse, ApiError, ApiMeta } from '@serviceflow/shared';
 
-export interface PaginationMeta {
+// Alias for backwards compatibility
+export type PaginationMeta = {
   page: number;
   perPage: number;
   total: number;
   totalPages: number;
-}
-
-export interface ApiError {
-  code: string;
-  message: string;
-}
+};
 
 // ============================================
 // FORM/INPUT TYPES

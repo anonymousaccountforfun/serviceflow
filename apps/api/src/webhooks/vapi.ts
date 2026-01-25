@@ -77,11 +77,17 @@ interface VapiWebhookPayload {
 const verifySignature = (req: Request, res: Response, next: Function) => {
   const secret = process.env.VAPI_WEBHOOK_SECRET;
 
-  // If no secret configured, log warning and continue (allows development without Vapi)
+  // If no secret configured, fail secure in production
   if (!secret) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('⚠️ SECURITY: VAPI_WEBHOOK_SECRET not set in production - webhooks unprotected');
+      console.error('⚠️ CRITICAL: VAPI_WEBHOOK_SECRET not set in production - rejecting webhook');
+      return res.status(503).json({
+        success: false,
+        error: { code: 'E5002', message: 'Webhook service misconfigured' },
+      });
     }
+    // Only allow bypass in development/test environments
+    console.warn('⚠️ Development mode: Vapi webhook signature validation skipped');
     return next();
   }
 

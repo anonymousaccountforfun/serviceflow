@@ -19,11 +19,34 @@ export const addressSchema = z.object({
   country: z.string().default('US'),
 });
 
-export const paginationSchema = z.object({
+// Base pagination schema without sortBy (use entity-specific schemas below)
+const basePaginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   perPage: z.coerce.number().int().min(1).max(100).default(20),
-  sortBy: z.string().optional(),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+// Generic pagination for backwards compatibility (no sort)
+export const paginationSchema = basePaginationSchema;
+
+// Job-specific pagination with validated sortBy allowlist
+export const jobPaginationSchema = basePaginationSchema.extend({
+  sortBy: z.enum(['createdAt', 'updatedAt', 'scheduledAt', 'title', 'status', 'priority']).optional().default('createdAt'),
+});
+
+// Customer-specific pagination with validated sortBy allowlist
+export const customerPaginationSchema = basePaginationSchema.extend({
+  sortBy: z.enum(['createdAt', 'updatedAt', 'firstName', 'lastName', 'phone']).optional().default('createdAt'),
+});
+
+// Review-specific pagination with validated sortBy allowlist
+export const reviewPaginationSchema = basePaginationSchema.extend({
+  sortBy: z.enum(['createdAt', 'rating', 'platform']).optional().default('createdAt'),
+});
+
+// Message-specific pagination with validated sortBy allowlist
+export const messagePaginationSchema = basePaginationSchema.extend({
+  sortBy: z.enum(['createdAt', 'sentAt']).optional().default('createdAt'),
 });
 
 // ============================================
@@ -236,3 +259,7 @@ export type RequestReviewInput = z.infer<typeof requestReviewSchema>;
 export type RespondToReviewInput = z.infer<typeof respondToReviewSchema>;
 export type UpdateOrganizationSettingsInput = z.infer<typeof updateOrganizationSettingsSchema>;
 export type PaginationInput = z.infer<typeof paginationSchema>;
+export type JobPaginationInput = z.infer<typeof jobPaginationSchema>;
+export type CustomerPaginationInput = z.infer<typeof customerPaginationSchema>;
+export type ReviewPaginationInput = z.infer<typeof reviewPaginationSchema>;
+export type MessagePaginationInput = z.infer<typeof messagePaginationSchema>;

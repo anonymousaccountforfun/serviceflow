@@ -3,8 +3,23 @@ import { prisma } from '@serviceflow/database';
 import { events } from '../services/events';
 import { sms } from '../services/sms';
 import { reviewSubmitLimiter } from '../middleware/rate-limit';
+import { logger } from '../lib/logger';
 
 const router = Router();
+
+/**
+ * Escape HTML entities to prevent XSS attacks
+ */
+function escapeHtml(str: string): string {
+  const htmlEntities: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  };
+  return str.replace(/[&<>"']/g, (char) => htmlEntities[char] || char);
+}
 
 /**
  * GET /r/:id - Review link landing page (public, no auth)
@@ -27,17 +42,22 @@ router.get('/:id', async (req, res) => {
       return res.status(404).send('Review request not found');
     }
 
-    // Track the click if not already clicked
-    if (!reviewRequest.clickedAt) {
-      await prisma.reviewRequest.update({
-        where: { id },
-        data: {
-          status: 'clicked',
-          clickedAt: new Date(),
-        },
-      });
+    // Track the click atomically (only update if not already clicked)
+    // Using updateMany with a condition prevents race conditions
+    const clickUpdate = await prisma.reviewRequest.updateMany({
+      where: {
+        id,
+        clickedAt: null, // Only update if not already clicked
+      },
+      data: {
+        status: 'clicked',
+        clickedAt: new Date(),
+      },
+    });
 
-      console.log(`⭐ Review link clicked: ${id}`);
+    // Only log if this was the first click (update actually happened)
+    if (clickUpdate.count > 0) {
+      logger.info('Review link clicked', { reviewRequestId: id });
     }
 
     // Get organization's Google review link from settings
@@ -50,13 +70,15 @@ router.get('/:id', async (req, res) => {
     }
 
     // Otherwise, show a simple review landing page
+    // Escape organization name to prevent XSS
+    const orgName = escapeHtml(reviewRequest.organization.name);
     const html = `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Leave a Review - ${reviewRequest.organization.name}</title>
+  <title>Leave a Review - ${orgName}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -119,7 +141,7 @@ router.get('/:id', async (req, res) => {
   <div class="card">
     <div class="form">
       <h1>How was your experience?</h1>
-      <p>with ${reviewRequest.organization.name}</p>
+      <p>with ${orgName}</p>
 
       <div class="stars" id="stars">
         <span class="star unselected" data-rating="1">★</span>
@@ -188,7 +210,7 @@ router.get('/:id', async (req, res) => {
     res.setHeader('Content-Type', 'text/html');
     res.send(html);
   } catch (error) {
-    console.error('Error loading review page:', error);
+    logger.error('Error loading review page', error);
     res.status(500).send('Something went wrong');
   }
 });
@@ -200,6 +222,14 @@ router.get('/:id', async (req, res) => {
 router.post('/:id/submit', reviewSubmitLimiter, async (req, res) => {
   const { id } = req.params;
   const { rating, feedback } = req.body;
+
+  // Validate rating is an integer between 1-5
+  if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+    return res.status(400).json({
+      success: false,
+      error: { code: 'E2001', message: 'Rating must be an integer between 1 and 5' },
+    });
+  }
 
   try {
     const reviewRequest = await prisma.reviewRequest.findUnique({
@@ -253,7 +283,7 @@ router.post('/:id/submit', reviewSubmitLimiter, async (req, res) => {
       },
     });
 
-    console.log(`⭐ Review submitted: ${rating} stars for job ${reviewRequest.jobId}`);
+    logger.info('Review submitted', { rating, jobId: reviewRequest.jobId });
 
     // If high rating (4-5), suggest leaving a Google review
     const settings = reviewRequest.organization.settings as any;
@@ -298,7 +328,7 @@ router.post('/:id/submit', reviewSubmitLimiter, async (req, res) => {
 
     res.json({ success: true, message: 'Thank you for your feedback!' });
   } catch (error) {
-    console.error('Error submitting review:', error);
+    logger.error('Error submitting review', error);
     res.status(500).json({ error: 'Failed to submit review' });
   }
 });
@@ -354,7 +384,7 @@ export async function handleSentimentReply(
       },
     });
 
-    console.log(`⭐ Review received via SMS: ${rating} stars`);
+    logger.info('Review received via SMS', { rating });
 
     // Send appropriate follow-up based on rating
     const settings = reviewRequest.organization.settings as any;
@@ -387,7 +417,7 @@ export async function handleSentimentReply(
 
     return true;
   } catch (error) {
-    console.error('Error handling sentiment reply:', error);
+    logger.error('Error handling sentiment reply', error);
     return false;
   }
 }

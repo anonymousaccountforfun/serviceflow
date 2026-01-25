@@ -43,11 +43,17 @@ const parseTwilioBody = (req: Request, res: Response, next: NextFunction) => {
 const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) => {
   const authToken = process.env.TWILIO_AUTH_TOKEN;
 
-  // If no auth token configured, log warning and continue (allows development without Twilio)
+  // If no auth token configured, fail secure in production
   if (!authToken) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('⚠️ SECURITY: TWILIO_AUTH_TOKEN not set in production - webhooks unprotected');
+      console.error('⚠️ CRITICAL: TWILIO_AUTH_TOKEN not set in production - rejecting webhook');
+      return res.status(503).json({
+        success: false,
+        error: { code: 'E5001', message: 'Webhook service misconfigured' },
+      });
     }
+    // Only allow bypass in development/test environments
+    console.warn('⚠️ Development mode: Twilio webhook signature validation skipped');
     return next();
   }
 
