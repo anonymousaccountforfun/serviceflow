@@ -35,3 +35,5 @@ coverage/
 # Misc
 *.pem
 twilio_2FA_recovery_code.txt
+.vercel
+.env*.local
