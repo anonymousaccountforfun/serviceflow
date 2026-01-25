@@ -16,9 +16,15 @@ interface ApiResponse<T> {
 
 class ApiClient {
   private organizationId: string | null = null;
+  private getAuthToken: (() => Promise<string | null>) | null = null;
 
   setOrganizationId(id: string) {
     this.organizationId = id;
+  }
+
+  // Set the auth token getter (called from AuthProvider)
+  setAuthTokenGetter(getter: () => Promise<string | null>) {
+    this.getAuthToken = getter;
   }
 
   private async request<T>(
@@ -30,8 +36,21 @@ class ApiClient {
       'Content-Type': 'application/json',
     };
 
+    // Add organization ID if set
     if (this.organizationId) {
       headers['x-organization-id'] = this.organizationId;
+    }
+
+    // Add auth token if available
+    if (this.getAuthToken) {
+      try {
+        const token = await this.getAuthToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      } catch (error) {
+        console.error('Failed to get auth token:', error);
+      }
     }
 
     const response = await fetch(`${API_BASE}${path}`, {
@@ -39,6 +58,12 @@ class ApiClient {
       headers,
       body: body ? JSON.stringify(body) : undefined,
     });
+
+    // Handle unauthorized responses
+    if (response.status === 401) {
+      // Could redirect to sign-in or trigger auth refresh
+      console.error('Unauthorized request to:', path);
+    }
 
     return response.json();
   }
@@ -180,6 +205,19 @@ class ApiClient {
 
   async syncGoogleReviews() {
     return this.request<any>('POST', '/api/google/reviews/sync');
+  }
+
+  // User & Organization
+  async getCurrentUser() {
+    return this.request<any>('GET', '/api/users/me');
+  }
+
+  async updateCurrentUser(data: { firstName?: string; lastName?: string; phone?: string }) {
+    return this.request<any>('PATCH', '/api/users/me', data);
+  }
+
+  async updateOrganizationSettings(data: any) {
+    return this.request<any>('PUT', '/api/organizations/settings', data);
   }
 }
 

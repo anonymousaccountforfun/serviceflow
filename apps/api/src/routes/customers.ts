@@ -8,14 +8,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const { page, perPage, sortBy, sortOrder } = paginationSchema.parse(req.query);
-    const orgId = req.headers['x-organization-id'] as string;
-
-    if (!orgId) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E2001', message: 'Organization ID required' },
-      });
-    }
+    const orgId = req.auth!.organizationId;
 
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
@@ -50,7 +43,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const customer = await prisma.customer.findFirst({
       where: { id, organizationId: orgId },
@@ -81,7 +74,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/customers - Create customer
 router.post('/', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const data = createCustomerSchema.parse(req.body);
 
     const customer = await prisma.customer.create({
@@ -112,7 +105,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const data = updateCustomerSchema.parse(req.body);
 
     const customer = await prisma.customer.updateMany({
@@ -142,7 +135,7 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const customer = await prisma.customer.deleteMany({
       where: { id, organizationId: orgId },

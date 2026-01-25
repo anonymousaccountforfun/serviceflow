@@ -4,6 +4,9 @@ import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+// Middleware
+import { requireAuth, optionalAuth } from './middleware/auth';
+
 // Routes
 import healthRoutes from './routes/health';
 import webhookRoutes from './webhooks';
@@ -39,19 +42,21 @@ app.use('/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
 // Regular JSON parsing for other routes
 app.use(express.json());
 
-// Routes
+// Public routes (no auth required)
 app.use('/health', healthRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/jobs', jobRoutes);
-app.use('/api/conversations', conversationRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/analytics', analyticsRoutes);
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/calendar', calendarRoutes);
-app.use('/api/google', googleRoutes);
 
-// Public review link (short URL for SMS)
+// Public review link (short URL for SMS) - no auth
 app.use('/r', reviewRoutes);
+
+// Protected API routes - require authentication
+app.use('/api/customers', requireAuth, customerRoutes);
+app.use('/api/jobs', requireAuth, jobRoutes);
+app.use('/api/conversations', requireAuth, conversationRoutes);
+app.use('/api/reviews', requireAuth, reviewRoutes);
+app.use('/api/analytics', requireAuth, analyticsRoutes);
+app.use('/api/appointments', requireAuth, appointmentRoutes);
+app.use('/api/calendar', requireAuth, calendarRoutes);
+app.use('/api/google', requireAuth, googleRoutes);
 
 // Error handler
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
