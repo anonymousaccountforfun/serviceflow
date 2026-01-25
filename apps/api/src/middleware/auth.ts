@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { createClerkClient } from '@clerk/backend';
+import { Clerk, verifyToken } from '@clerk/backend';
 import { prisma } from '@serviceflow/database';
 import { updateLogContext, logger } from '../lib/logger';
 import { setUser } from '../lib/sentry';
@@ -30,8 +30,8 @@ declare global {
   }
 }
 
-// Initialize Clerk client
-const clerk = createClerkClient({
+// Initialize Clerk client (v0.38.x API)
+const clerk = Clerk({
   secretKey: process.env.CLERK_SECRET_KEY,
 });
 
@@ -64,10 +64,13 @@ export async function requireAuth(
 
     const token = authHeader.substring(7);
 
-    // Verify the JWT with Clerk
+    // Verify the JWT with Clerk (v0.38.x uses verifyToken directly)
     let clerkId: string;
     try {
-      const payload = await clerk.verifyToken(token);
+      const payload = await verifyToken(token, {
+        secretKey: process.env.CLERK_SECRET_KEY,
+        issuer: process.env.CLERK_ISSUER || null,
+      });
       clerkId = payload.sub;
     } catch (error) {
       logger.warn('Token verification failed', { error: error instanceof Error ? error.message : String(error) });
@@ -186,7 +189,10 @@ export async function optionalAuth(
     const token = authHeader.substring(7);
 
     try {
-      const payload = await clerk.verifyToken(token);
+      const payload = await verifyToken(token, {
+        secretKey: process.env.CLERK_SECRET_KEY,
+        issuer: process.env.CLERK_ISSUER || null,
+      });
       const clerkId = payload.sub;
 
       const user = await prisma.user.findUnique({

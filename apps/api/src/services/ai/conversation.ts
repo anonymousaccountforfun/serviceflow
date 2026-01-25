@@ -155,6 +155,9 @@ export class AIConversationManager {
           appointments: {
             orderBy: { scheduledAt: 'desc' },
             take: 3,
+            include: {
+              job: { select: { title: true } },
+            },
           },
         },
       });
@@ -165,7 +168,7 @@ RETURNING CUSTOMER:
 - Name: ${customer.firstName} ${customer.lastName}
 - Phone: ${customer.phone}
 - Previous appointments: ${customer.appointments.length > 0
-          ? customer.appointments.map(a => `${a.title} on ${a.scheduledAt.toLocaleDateString()}`).join(', ')
+          ? customer.appointments.map(a => `${a.job.title} on ${a.scheduledAt.toLocaleDateString()}`).join(', ')
           : 'None on file'}
 `;
       }

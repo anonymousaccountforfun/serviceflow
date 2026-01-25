@@ -2,13 +2,13 @@
  * Job Completion API Routes (PRD-011)
  *
  * Handles the job completion flow including:
- * - Saving partial completion progress
+ * - Saving partial completion progress (stored in photos JSON field)
  * - Finalizing job completion
- * - Photo uploads
+ * - Photo uploads (stored in photos JSON array)
  * - Triggering invoice creation and review requests
  */
 
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { prisma } from '@serviceflow/database';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
@@ -87,13 +87,25 @@ const completeJobSchema = z.object({
   reviewRequest: reviewRequestSchema.optional(),
 });
 
-// Line item for invoice
-const lineItemSchema = z.object({
-  description: z.string().min(1),
-  quantity: z.number().positive(),
-  unitPrice: z.number().int(), // cents
-  total: z.number().int(), // cents
-});
+// Photo data structure stored in Job.photos JSON
+interface JobPhoto {
+  id: string;
+  url: string;
+  type: 'before' | 'after';
+  caption?: string;
+  createdAt: string;
+  [key: string]: unknown; // Index signature for JSON compatibility
+}
+
+interface JobPhotosData {
+  photos: JobPhoto[];
+  completionState?: z.infer<typeof saveCompletionProgressSchema>;
+  customerSignature?: string;
+  completionNotes?: string;
+  partsUsed?: z.infer<typeof partUsedSchema>[];
+  actualDuration?: number;
+  [key: string]: unknown; // Index signature for JSON compatibility
+}
 
 // ============================================
 // PHOTO STORAGE
@@ -131,6 +143,24 @@ async function savePhoto(
   return `/uploads/${orgId}/jobs/${filename}`;
 }
 
+/**
+ * Parse the photos JSON field from Job
+ */
+function parsePhotosData(photos: unknown): JobPhotosData {
+  if (!photos || typeof photos !== 'object') {
+    return { photos: [] };
+  }
+  const data = photos as Record<string, unknown>;
+  return {
+    photos: Array.isArray(data.photos) ? data.photos as JobPhoto[] : [],
+    completionState: data.completionState as JobPhotosData['completionState'],
+    customerSignature: data.customerSignature as string | undefined,
+    completionNotes: data.completionNotes as string | undefined,
+    partsUsed: data.partsUsed as JobPhotosData['partsUsed'],
+    actualDuration: data.actualDuration as number | undefined,
+  };
+}
+
 // ============================================
 // ROUTES
 // ============================================
@@ -139,7 +169,7 @@ async function savePhoto(
  * GET /api/jobs/:id/completion - Get saved completion state
  * Used to resume a partially completed completion flow
  */
-router.get('/:id/completion', async (req, res) => {
+router.get('/:id/completion', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const orgId = req.auth!.organizationId;
@@ -149,22 +179,8 @@ router.get('/:id/completion', async (req, res) => {
       select: {
         id: true,
         status: true,
-        completionState: true,
-        completionNotes: true,
-        actualDuration: true,
-        partsUsed: true,
-        customerSignature: true,
         completedAt: true,
-        jobPhotos: {
-          select: {
-            id: true,
-            url: true,
-            type: true,
-            caption: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'asc' },
-        },
+        photos: true,
       },
     });
 
@@ -175,6 +191,8 @@ router.get('/:id/completion', async (req, res) => {
       });
     }
 
+    const photosData = parsePhotosData(job.photos);
+
     // If job is already completed, return the completed data
     if (job.status === 'completed') {
       return res.json({
@@ -183,15 +201,15 @@ router.get('/:id/completion', async (req, res) => {
           status: 'completed',
           completedAt: job.completedAt,
           workSummary: {
-            description: job.completionNotes,
-            partsUsed: job.partsUsed,
-            actualDuration: job.actualDuration,
+            description: photosData.completionNotes,
+            partsUsed: photosData.partsUsed,
+            actualDuration: photosData.actualDuration,
           },
           photos: {
-            before: job.jobPhotos.filter((p) => p.type === 'before'),
-            after: job.jobPhotos.filter((p) => p.type === 'after'),
+            before: photosData.photos.filter((p) => p.type === 'before'),
+            after: photosData.photos.filter((p) => p.type === 'after'),
           },
-          customerSignature: job.customerSignature,
+          customerSignature: photosData.customerSignature,
         },
       });
     }
@@ -201,10 +219,10 @@ router.get('/:id/completion', async (req, res) => {
       success: true,
       data: {
         status: 'in_progress',
-        completionState: job.completionState || null,
+        completionState: photosData.completionState || null,
         photos: {
-          before: job.jobPhotos.filter((p) => p.type === 'before'),
-          after: job.jobPhotos.filter((p) => p.type === 'after'),
+          before: photosData.photos.filter((p) => p.type === 'before'),
+          after: photosData.photos.filter((p) => p.type === 'after'),
         },
       },
     });
@@ -221,7 +239,7 @@ router.get('/:id/completion', async (req, res) => {
  * POST /api/jobs/:id/completion - Save partial completion progress
  * Allows saving progress at any step to resume later
  */
-router.post('/:id/completion', async (req, res) => {
+router.post('/:id/completion', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const orgId = req.auth!.organizationId;
@@ -247,9 +265,13 @@ router.post('/:id/completion', async (req, res) => {
       });
     }
 
-    // Update job status to in_progress if not already
+    // Parse existing photos data and add completion state
+    const photosData = parsePhotosData(job.photos);
+    photosData.completionState = data;
+
+    // Update job
     const updateData: Record<string, unknown> = {
-      completionState: data,
+      photos: photosData,
     };
 
     if (job.status !== 'in_progress') {
@@ -257,7 +279,7 @@ router.post('/:id/completion', async (req, res) => {
       updateData.startedAt = new Date();
     }
 
-    const updated = await prisma.job.update({
+    await prisma.job.update({
       where: { id },
       data: updateData,
     });
@@ -285,7 +307,7 @@ router.post('/:id/completion', async (req, res) => {
  * POST /api/jobs/:id/complete - Finalize job completion
  * Completes the job with all provided data and triggers downstream actions
  */
-router.post('/:id/complete', async (req, res) => {
+router.post('/:id/complete', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const orgId = req.auth!.organizationId;
@@ -297,7 +319,6 @@ router.post('/:id/complete', async (req, res) => {
       include: {
         customer: true,
         organization: true,
-        jobPhotos: true,
       },
     });
 
@@ -322,19 +343,23 @@ router.post('/:id/complete', async (req, res) => {
       0
     );
 
+    // Parse existing photos and update with completion data
+    const photosData = parsePhotosData(job.photos);
+    photosData.completionNotes = data.workSummary.description;
+    photosData.actualDuration = data.workSummary.actualDuration;
+    photosData.partsUsed = data.workSummary.partsUsed;
+    photosData.customerSignature = data.customerApproval?.signature;
+    delete photosData.completionState; // Clear the partial state
+
     // Update job with completion data
     const completedJob = await prisma.job.update({
       where: { id },
       data: {
         status: 'completed',
         completedAt: new Date(),
-        completionNotes: data.workSummary.description,
-        actualDuration: data.workSummary.actualDuration,
-        partsUsed: data.workSummary.partsUsed,
-        customerSignature: data.customerApproval?.signature || null,
         notes: data.workSummary.notes || job.notes,
         actualValue: partsTotal || job.actualValue,
-        completionState: null, // Clear the partial state
+        photos: photosData,
       },
       include: {
         customer: true,
@@ -404,9 +429,9 @@ router.post('/:id/complete', async (req, res) => {
 
 /**
  * POST /api/jobs/:id/photos - Upload photos for job
- * Handles multipart form data with photos
+ * Handles base64 encoded photos in JSON body
  */
-router.post('/:id/photos', async (req, res) => {
+router.post('/:id/photos', async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const orgId = req.auth!.organizationId;
@@ -432,69 +457,54 @@ router.post('/:id/photos', async (req, res) => {
       });
     }
 
-    // Check content type
-    const contentType = req.headers['content-type'] || '';
-
     // Handle base64 encoded photo in JSON body
-    if (contentType.includes('application/json')) {
-      const { photo, caption } = req.body as { photo?: string; caption?: string };
+    const { photo, caption } = req.body as { photo?: string; caption?: string };
 
-      if (!photo) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'E2001', message: 'Photo data is required' },
-        });
-      }
-
-      // Extract base64 data (handle data URI format)
-      let base64Data = photo;
-      let mimeType = 'image/jpeg';
-
-      if (photo.startsWith('data:')) {
-        const matches = photo.match(/^data:([^;]+);base64,(.+)$/);
-        if (matches) {
-          mimeType = matches[1];
-          base64Data = matches[2];
-        }
-      }
-
-      const buffer = Buffer.from(base64Data, 'base64');
-      const url = await savePhoto(orgId, id, buffer, mimeType);
-
-      const jobPhoto = await prisma.jobPhoto.create({
-        data: {
-          jobId: id,
-          url,
-          type: photoType as 'before' | 'after',
-          caption: caption || null,
-        },
-      });
-
-      logger.info('Photo uploaded', { jobId: id, photoId: jobPhoto.id, type: photoType });
-
-      return res.status(201).json({
-        success: true,
-        data: jobPhoto,
-      });
-    }
-
-    // Handle multipart form data
-    if (contentType.includes('multipart/form-data')) {
-      // For multipart, we need the raw body
-      // In a real implementation, use multer or busboy middleware
-      // For now, we'll return an error suggesting to use base64
+    if (!photo) {
       return res.status(400).json({
         success: false,
-        error: {
-          code: 'E2001',
-          message: 'Use JSON body with base64-encoded photo for now. Multipart upload coming soon.',
-        },
+        error: { code: 'E2001', message: 'Photo data is required' },
       });
     }
 
-    return res.status(400).json({
-      success: false,
-      error: { code: 'E2001', message: 'Unsupported content type' },
+    // Extract base64 data (handle data URI format)
+    let base64Data = photo;
+    let mimeType = 'image/jpeg';
+
+    if (photo.startsWith('data:')) {
+      const matches = photo.match(/^data:([^;]+);base64,(.+)$/);
+      if (matches) {
+        mimeType = matches[1];
+        base64Data = matches[2];
+      }
+    }
+
+    const buffer = Buffer.from(base64Data, 'base64');
+    const url = await savePhoto(orgId, id, buffer, mimeType);
+
+    // Create photo object
+    const newPhoto: JobPhoto = {
+      id: randomUUID(),
+      url,
+      type: photoType as 'before' | 'after',
+      caption: caption || undefined,
+      createdAt: new Date().toISOString(),
+    };
+
+    // Add to photos array in job
+    const photosData = parsePhotosData(job.photos);
+    photosData.photos.push(newPhoto);
+
+    await prisma.job.update({
+      where: { id },
+      data: { photos: photosData },
+    });
+
+    logger.info('Photo uploaded', { jobId: id, photoId: newPhoto.id, type: photoType });
+
+    return res.status(201).json({
+      success: true,
+      data: newPhoto,
     });
   } catch (error) {
     logger.error('Error uploading photo', error);
@@ -508,7 +518,7 @@ router.post('/:id/photos', async (req, res) => {
 /**
  * DELETE /api/jobs/:id/photos/:photoId - Delete a job photo
  */
-router.delete('/:id/photos/:photoId', async (req, res) => {
+router.delete('/:id/photos/:photoId', async (req: Request, res: Response) => {
   try {
     const { id, photoId } = req.params;
     const orgId = req.auth!.organizationId;
@@ -525,17 +535,22 @@ router.delete('/:id/photos/:photoId', async (req, res) => {
       });
     }
 
-    // Delete the photo
-    const deleted = await prisma.jobPhoto.deleteMany({
-      where: { id: photoId, jobId: id },
-    });
+    // Parse photos and remove the specified one
+    const photosData = parsePhotosData(job.photos);
+    const initialLength = photosData.photos.length;
+    photosData.photos = photosData.photos.filter(p => p.id !== photoId);
 
-    if (deleted.count === 0) {
+    if (photosData.photos.length === initialLength) {
       return res.status(404).json({
         success: false,
         error: { code: 'E3001', message: 'Photo not found' },
       });
     }
+
+    await prisma.job.update({
+      where: { id },
+      data: { photos: photosData },
+    });
 
     logger.info('Photo deleted', { jobId: id, photoId });
 

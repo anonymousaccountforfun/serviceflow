@@ -75,7 +75,7 @@ export function initSentry(): void {
 
       // Integration options
       integrations: [
-        Sentry.httpIntegration({ tracing: true }),
+        Sentry.httpIntegration(),
         Sentry.expressIntegration(),
       ],
     });
@@ -97,23 +97,21 @@ export function isSentryInitialized(): boolean {
 /**
  * Add Sentry request handler middleware
  * Should be added early in the middleware chain
+ * Note: In Sentry v8, request handling is automatic via expressIntegration
  */
 export function sentryRequestHandler() {
-  if (!initialized) {
-    return (req: Request, res: Response, next: NextFunction) => next();
-  }
-  return Sentry.Handlers.requestHandler();
+  // In Sentry v8, expressIntegration handles request instrumentation automatically
+  return (req: Request, res: Response, next: NextFunction) => next();
 }
 
 /**
  * Add Sentry tracing middleware
  * Should be added early in the middleware chain
+ * Note: In Sentry v8, tracing is automatic via httpIntegration
  */
 export function sentryTracingHandler() {
-  if (!initialized) {
-    return (req: Request, res: Response, next: NextFunction) => next();
-  }
-  return Sentry.Handlers.tracingHandler();
+  // In Sentry v8, httpIntegration handles tracing automatically
+  return (req: Request, res: Response, next: NextFunction) => next();
 }
 
 /**
@@ -124,15 +122,15 @@ export function sentryErrorHandler() {
   if (!initialized) {
     return (err: Error, req: Request, res: Response, next: NextFunction) => next(err);
   }
-  return Sentry.Handlers.errorHandler({
-    shouldHandleError(error) {
-      // Report 4xx and 5xx status codes
-      if ('statusCode' in error) {
-        return (error as any).statusCode >= 400;
-      }
-      return true;
-    },
-  });
+  // In Sentry v8, use setupExpressErrorHandler approach
+  return (err: Error, req: Request, res: Response, next: NextFunction) => {
+    // Only capture 4xx and 5xx errors
+    const statusCode = 'statusCode' in err ? (err as any).statusCode : 500;
+    if (statusCode >= 400) {
+      Sentry.captureException(err);
+    }
+    next(err);
+  };
 }
 
 /**

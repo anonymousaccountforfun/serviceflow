@@ -11,15 +11,15 @@
 
 import { Router, Request, Response } from 'express';
 import { prisma } from '@serviceflow/database';
-import { createClerkClient } from '@clerk/backend';
+import { Clerk } from '@clerk/backend';
 import { z } from 'zod';
 import { requireRole } from '../middleware/auth';
 import { logger } from '../lib/logger';
 
 const router = Router();
 
-// Initialize Clerk client
-const clerk = createClerkClient({
+// Initialize Clerk client (v0.38.x API)
+const clerk = Clerk({
   secretKey: process.env.CLERK_SECRET_KEY,
 });
 

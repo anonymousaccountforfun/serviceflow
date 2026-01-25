@@ -4,13 +4,16 @@
  */
 
 // Provider abstraction and types
-export {
+export type {
   AIProvider,
   AIProviderOptions,
   AIResponse,
   Message,
   ToolCall,
   ToolDefinition,
+} from './provider';
+
+export {
   getDefaultProvider,
   getProvider,
   registerProvider,
@@ -26,17 +29,9 @@ export {
 export { claudeProvider } from './claude';
 
 // Tool definitions and execution
-export {
-  aiTools,
-  executeToolCall,
-  ToolContext,
-  ToolResult,
-} from './tools';
+export type { ToolContext, ToolResult } from './tools';
+export { aiTools, executeToolCall } from './tools';
 
 // Conversation management
-export {
-  AIConversationManager,
-  ConversationConfig,
-  ConversationResult,
-  createConversation,
-} from './conversation';
+export type { ConversationConfig, ConversationResult } from './conversation';
+export { AIConversationManager, createConversation } from './conversation';

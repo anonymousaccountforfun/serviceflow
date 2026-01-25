@@ -1,5 +1,9 @@
 /**
  * Claude/Anthropic AI Provider Implementation
+ *
+ * Note: Tool support requires @anthropic-ai/sdk >= 0.20.0
+ * Currently using 0.14.x which has limited tool support.
+ * Tools are disabled until SDK is upgraded.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -16,6 +20,21 @@ import {
 
 const DEFAULT_MODEL = 'claude-3-5-sonnet-20241022';
 const DEFAULT_MAX_TOKENS = 4096;
+
+// Type for message content blocks
+interface TextBlock {
+  type: 'text';
+  text: string;
+}
+
+interface ToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: Record<string, unknown>;
+}
+
+type ContentBlock = TextBlock | ToolUseBlock;
 
 class ClaudeProvider implements AIProvider {
   name = 'claude';
@@ -34,7 +53,7 @@ class ClaudeProvider implements AIProvider {
 
   async sendMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
+    _tools?: ToolDefinition[],
     options?: AIProviderOptions
   ): Promise<AIResponse> {
     const client = this.getClient();
@@ -48,20 +67,14 @@ class ClaudeProvider implements AIProvider {
     // Convert messages to Anthropic format
     const anthropicMessages = this.convertMessages(conversationMessages);
 
-    // Convert tools to Anthropic format
-    const anthropicTools = tools?.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.parameters,
-    }));
-
     try {
       const response = await client.messages.create({
         model,
         max_tokens: maxTokens,
         system: systemMessages.map(m => m.content).join('\n\n') || undefined,
         messages: anthropicMessages,
-        tools: anthropicTools,
+        // Note: tools parameter requires SDK >= 0.20.0
+        // tools: anthropicTools,
         temperature: options?.temperature,
       });
 
@@ -74,7 +87,7 @@ class ClaudeProvider implements AIProvider {
 
   async *streamMessage(
     messages: Message[],
-    tools?: ToolDefinition[],
+    _tools?: ToolDefinition[],
     options?: AIProviderOptions
   ): AsyncGenerator<string, AIResponse> {
     const client = this.getClient();
@@ -85,18 +98,12 @@ class ClaudeProvider implements AIProvider {
     const conversationMessages = messages.filter(m => m.role !== 'system');
     const anthropicMessages = this.convertMessages(conversationMessages);
 
-    const anthropicTools = tools?.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      input_schema: tool.parameters,
-    }));
-
     const stream = await client.messages.stream({
       model,
       max_tokens: maxTokens,
       system: systemMessages.map(m => m.content).join('\n\n') || undefined,
       messages: anthropicMessages,
-      tools: anthropicTools,
+      // Note: tools parameter requires SDK >= 0.20.0
       temperature: options?.temperature,
     });
 
@@ -157,31 +164,21 @@ class ClaudeProvider implements AIProvider {
         result.push({ role: 'user', content: msg.content });
       } else if (msg.role === 'assistant') {
         if (msg.toolCalls && msg.toolCalls.length > 0) {
-          const content: Anthropic.ContentBlock[] = [];
-          if (msg.content) {
-            content.push({ type: 'text', text: msg.content });
-          }
+          // For SDK 0.14.x, we need to format tool calls as text
+          // since the SDK doesn't fully support tool_use content blocks
+          let content = msg.content || '';
           for (const tc of msg.toolCalls) {
-            content.push({
-              type: 'tool_use',
-              id: tc.id,
-              name: tc.name,
-              input: tc.arguments,
-            });
+            content += `\n[Tool Call: ${tc.name}(${JSON.stringify(tc.arguments)})]`;
           }
           result.push({ role: 'assistant', content });
         } else {
           result.push({ role: 'assistant', content: msg.content });
         }
       } else if (msg.role === 'tool') {
-        // Tool results need to be in a user message
+        // Tool results formatted as user messages for SDK 0.14.x
         result.push({
           role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: msg.toolCallId!,
-            content: msg.content,
-          }],
+          content: `[Tool Result for ${msg.toolCallId}]: ${msg.content}`,
         });
       }
     }
@@ -194,13 +191,15 @@ class ClaudeProvider implements AIProvider {
     const toolCalls: ToolCall[] = [];
 
     for (const block of response.content) {
-      if (block.type === 'text') {
-        content += block.text;
-      } else if (block.type === 'tool_use') {
+      // Type guard to handle both text and tool_use blocks
+      const typedBlock = block as ContentBlock;
+      if (typedBlock.type === 'text') {
+        content += typedBlock.text;
+      } else if (typedBlock.type === 'tool_use') {
         toolCalls.push({
-          id: block.id,
-          name: block.name,
-          arguments: block.input as Record<string, unknown>,
+          id: typedBlock.id,
+          name: typedBlock.name,
+          arguments: typedBlock.input,
         });
       }
     }

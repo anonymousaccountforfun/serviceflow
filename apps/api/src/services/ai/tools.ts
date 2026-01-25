@@ -132,7 +132,7 @@ async function handleCheckAvailability(
       },
       select: {
         scheduledAt: true,
-        duration: true,
+        scheduledEndAt: true,
       },
     });
 
@@ -196,7 +196,7 @@ async function handleBookAppointment(
           firstName: nameParts[0] || args.customer_name,
           lastName: nameParts.slice(1).join(' ') || '',
           phone: args.phone,
-          source: 'ai_call',
+          source: 'phone_ai',
         },
       });
     }
@@ -206,17 +206,33 @@ async function handleBookAppointment(
     const scheduledAt = new Date(args.date);
     scheduledAt.setHours(hours, minutes, 0, 0);
 
-    // Create appointment
-    const appointment = await prisma.appointment.create({
+    // Calculate end time (1 hour later)
+    const scheduledEndAt = new Date(scheduledAt);
+    scheduledEndAt.setHours(scheduledEndAt.getHours() + 1);
+
+    // Create job first (appointment requires a job)
+    const job = await prisma.job.create({
       data: {
         organizationId: context.organizationId,
         customerId: customer.id,
         title: args.issue_description.slice(0, 100),
         description: args.issue_description,
-        scheduledAt,
-        duration: 60, // Default 1 hour
-        status: 'scheduled',
         type: (args.job_type as 'repair' | 'installation' | 'maintenance' | 'inspection' | 'emergency' | 'other') || 'other',
+        status: 'scheduled',
+        scheduledAt,
+      },
+    });
+
+    // Create appointment linked to the job
+    const appointment = await prisma.appointment.create({
+      data: {
+        organizationId: context.organizationId,
+        customerId: customer.id,
+        jobId: job.id,
+        scheduledAt,
+        scheduledEndAt,
+        status: 'scheduled',
+        notes: args.issue_description,
       },
     });
 
@@ -266,7 +282,7 @@ async function handleCreateLead(
           lastName: nameParts.slice(1).join(' ') || '',
           phone: args.phone,
           notes: args.issue ? `Initial inquiry: ${args.issue}` : undefined,
-          source: 'ai_call',
+          source: 'phone_ai',
         },
       });
 

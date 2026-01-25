@@ -389,7 +389,7 @@ router.get('/unassigned', async (req, res) => {
       organizationId: orgId,
       assignedToId: null,
       scheduledAt: { gte: new Date() },
-      status: { notIn: ['canceled', 'completed'] as const },
+      status: { notIn: ['canceled', 'completed'] as ('canceled' | 'completed')[] },
     };
 
     // Get upcoming unassigned appointments with pagination
