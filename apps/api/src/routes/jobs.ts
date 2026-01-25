@@ -109,7 +109,7 @@ router.post('/', async (req, res) => {
         type: data.type as any,
         priority: data.priority as any,
         scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : undefined,
-      },
+      } as any,
       include: {
         customer: { select: { firstName: true, lastName: true } },
       },

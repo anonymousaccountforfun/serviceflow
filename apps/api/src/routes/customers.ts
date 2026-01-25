@@ -89,7 +89,7 @@ router.post('/', async (req, res) => {
         ...data,
         organizationId: orgId,
         source: (data.source as any) || 'manual',
-      },
+      } as any,
     });
 
     res.status(201).json({ success: true, data: customer });
