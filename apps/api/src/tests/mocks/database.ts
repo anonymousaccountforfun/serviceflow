@@ -12,12 +12,14 @@ const createMockMethods = () => ({
   findMany: jest.fn(),
   create: jest.fn(),
   update: jest.fn(),
+  updateMany: jest.fn(),
   delete: jest.fn(),
   deleteMany: jest.fn(),
   count: jest.fn(),
   aggregate: jest.fn(),
   groupBy: jest.fn(),
   upsert: jest.fn(),
+  createMany: jest.fn(),
 });
 
 // Mock Prisma client
@@ -37,6 +39,8 @@ export const mockPrisma = {
   invoicePayment: createMockMethods(),
   template: createMockMethods(),
   googleCredential: createMockMethods(),
+  queuedSms: createMockMethods(),
+  call: createMockMethods(),
   $transaction: jest.fn((fn: Function) => fn(mockPrisma)),
 };
 

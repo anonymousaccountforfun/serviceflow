@@ -46,8 +46,10 @@ const PORT = process.env.PORT || 3001;
 // Register event handlers
 registerAllHandlers();
 
-// Start SMS queue processor
-smsQueue.start();
+// Start SMS queue processor (skip in test environment)
+if (process.env.NODE_ENV !== 'test') {
+  smsQueue.start();
+}
 
 // Sentry request handling (must be first)
 app.use(sentryRequestHandler());
@@ -119,8 +121,8 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
   });
 });
 
-// Start server (only when not running on Vercel)
-if (!process.env.VERCEL) {
+// Start server (only when not running on Vercel or in test mode)
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`🚀 API server running on port ${PORT}`);
     console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);

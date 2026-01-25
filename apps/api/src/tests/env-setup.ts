@@ -1,8 +1,8 @@
 /**
  * Jest Environment Setup
  *
- * This file runs BEFORE test files are imported to set up environment variables.
- * Must be in setupFiles (not setupFilesAfterEnv) to run before module imports.
+ * This file runs BEFORE test files are imported to set up environment variables
+ * and mock external modules. Must be in setupFiles to run before module imports.
  */
 
 // Set test environment
@@ -20,3 +20,10 @@ process.env.VAPI_API_KEY = 'test_vapi_key';
 process.env.OPENAI_API_KEY = 'test_openai_key';
 process.env.ANTHROPIC_API_KEY = 'test_anthropic_key';
 process.env.SENTRY_DSN = '';
+
+// Mock @clerk/backend BEFORE it gets imported by auth middleware
+jest.mock('@clerk/backend', () => ({
+  createClerkClient: jest.fn().mockReturnValue({
+    verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
+  }),
+}));
