@@ -254,7 +254,8 @@ export default function ProfileSettingsPage() {
       }
 
       // Sign out from Clerk and redirect to home
-      await signOut({ redirectUrl: '/' });
+      await signOut();
+      window.location.href = '/';
     } catch (error) {
       setDeleteError(error instanceof Error ? error.message : 'Failed to delete account');
       setIsDeleting(false);

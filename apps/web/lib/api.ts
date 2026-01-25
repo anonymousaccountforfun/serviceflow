@@ -14,7 +14,22 @@ import type {
   CreateJobInput,
   UpdateJobInput,
   CreateAppointmentInput,
+  PhoneNumber,
+  PhoneStatus,
+  AvailablePhoneNumber,
 } from './types';
+
+interface CalendarSlot {
+  date: string;
+  time: string;
+  available: boolean;
+}
+
+interface GoogleStatus {
+  connected: boolean;
+  email?: string;
+  reviewsEnabled: boolean;
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 

@@ -307,7 +307,7 @@ function DayView({ date, onAddClick }: { date: Date; onAddClick: () => void }) {
     queryFn: () => api.getCalendarDay(dateStr),
   });
 
-  const appointments = data?.data?.appointments || [];
+  const appointments = data?.data || [];
   const timeSlots = Array.from({ length: 13 }, (_, i) => i + 7);
 
   return (
@@ -372,7 +372,7 @@ function WeekView({ startDate, onAddClick }: { startDate: Date; onAddClick: () =
     queryFn: () => api.getCalendarWeek(dateStr),
   });
 
-  const byDay = data?.data?.byDay || {};
+  const byDay: Record<string, any[]> = data?.data || {};
 
   return (
     <div className="bg-surface rounded-xl border border-white/10 overflow-hidden">

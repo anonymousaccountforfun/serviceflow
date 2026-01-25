@@ -53,16 +53,18 @@ Sentry.init({
   // Filter sensitive data
   beforeSend(event) {
     // Remove sensitive URL parameters
-    if (event.request?.query_string) {
+    if (event.request?.query_string && typeof event.request.query_string === 'string') {
       const sensitiveParams = ['token', 'key', 'secret', 'password'];
+      let queryString = event.request.query_string;
       for (const param of sensitiveParams) {
-        if (event.request.query_string.includes(param)) {
-          event.request.query_string = event.request.query_string.replace(
+        if (queryString.includes(param)) {
+          queryString = queryString.replace(
             new RegExp(`${param}=[^&]*`, 'gi'),
             `${param}=[REDACTED]`
           );
         }
       }
+      event.request.query_string = queryString;
     }
     return event;
   },

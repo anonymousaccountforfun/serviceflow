@@ -38,7 +38,7 @@ export default function SignInPage() {
               formFieldErrorText: 'text-red-400',
             },
           }}
-          fallbackRedirectUrl="/dashboard"
+          afterSignInUrl="/dashboard"
           signUpUrl="/sign-up"
         />
 

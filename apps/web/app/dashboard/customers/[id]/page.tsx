@@ -198,7 +198,7 @@ export default function CustomerDetailPage() {
                   <MapPin className="w-6 h-6 text-blue-500" />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-white font-semibold truncate">{customer.city || 'Get Directions'}</p>
+                  <p className="text-white font-semibold truncate">{customer.address?.city || 'Get Directions'}</p>
                   <p className="text-xs text-gray-500">Tap to navigate</p>
                 </div>
                 <ExternalLink className="w-4 h-4 text-gray-500" />
@@ -210,9 +210,9 @@ export default function CustomerDetailPage() {
           {address && (
             <div className="bg-surface rounded-lg p-6">
               <h3 className="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-3">Address</h3>
-              <p className="text-white">{customer.address}</p>
+              <p className="text-white">{customer.address?.street}</p>
               <p className="text-gray-400">
-                {[customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
+                {[customer.address?.city, customer.address?.state, customer.address?.zip].filter(Boolean).join(', ')}
               </p>
             </div>
           )}

@@ -16,17 +16,17 @@ import {
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
-import type { Customer, CreateCustomerInput } from '../../../lib/types';
+import type { Customer, CreateCustomerInput, CustomerSource } from '../../../lib/types';
 import { rules, validateForm, hasErrors, formatPhoneNumber, type ValidationErrors } from '../../../lib/validation';
 import { FormField, TextInput, FormErrorBanner } from '../../../components/ui/FormField';
 
-const sourceOptions = [
+const sourceOptions: { value: CustomerSource; label: string }[] = [
   { value: 'referral', label: 'Referral' },
   { value: 'google', label: 'Google' },
-  { value: 'website', label: 'Website' },
-  { value: 'phone', label: 'Phone Call' },
-  { value: 'social_media', label: 'Social Media' },
-  { value: 'other', label: 'Other' },
+  { value: 'yelp', label: 'Yelp' },
+  { value: 'web_form', label: 'Website' },
+  { value: 'phone_inbound', label: 'Phone Call' },
+  { value: 'manual', label: 'Manual Entry' },
 ];
 
 // Validation schema for customer form
@@ -55,7 +55,7 @@ function CreateCustomerModal({
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
   const [zip, setZip] = useState('');
-  const [source, setSource] = useState('referral');
+  const [source, setSource] = useState<CustomerSource>('referral');
 
   const [error, setError] = useState<string | null>(null);
   const [touched, setTouched] = useState<Record<string, boolean>>({});
@@ -114,10 +114,12 @@ function CreateCustomerModal({
       lastName: lastName.trim(),
       phone: phone.trim(),
       email: email.trim() || undefined,
-      address: address.trim() || undefined,
-      city: city.trim() || undefined,
-      state: state.trim() || undefined,
-      zip: zip.trim() || undefined,
+      address: (address.trim() || city.trim() || state.trim() || zip.trim()) ? {
+        street: address.trim() || undefined,
+        city: city.trim() || undefined,
+        state: state.trim() || undefined,
+        zip: zip.trim() || undefined,
+      } : undefined,
       source,
     });
   };
@@ -285,7 +287,7 @@ function CreateCustomerModal({
           <FormField label="How did they find you?">
             <select
               value={source}
-              onChange={(e) => setSource(e.target.value)}
+              onChange={(e) => setSource(e.target.value as CustomerSource)}
               className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 focus-visible:ring-2 focus-visible:ring-orange-500/30 min-h-[44px]"
             >
               {sourceOptions.map((opt) => (
@@ -328,7 +330,7 @@ function CreateCustomerModal({
 }
 
 function CustomerCard({ customer }: { customer: Customer }) {
-  const address = [customer.address, customer.city, customer.state, customer.zip].filter(Boolean).join(', ');
+  const address = [customer.address?.street, customer.address?.city, customer.address?.state, customer.address?.zip].filter(Boolean).join(', ');
 
   return (
     <Link
@@ -379,9 +381,9 @@ function CustomerCard({ customer }: { customer: Customer }) {
         <span className="text-xs text-gray-500">
           {format(new Date(customer.createdAt), 'MMM d, yyyy')}
         </span>
-        {customer._count?.jobs > 0 && (
+        {customer.jobCount > 0 && (
           <span className="text-xs text-orange-500 font-semibold">
-            {customer._count.jobs} job{customer._count.jobs !== 1 ? 's' : ''}
+            {customer.jobCount} job{customer.jobCount !== 1 ? 's' : ''}
           </span>
         )}
       </div>

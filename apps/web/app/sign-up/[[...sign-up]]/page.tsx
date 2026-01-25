@@ -43,7 +43,7 @@ export default function SignUpPage() {
               formFieldErrorText: 'text-red-400',
             },
           }}
-          fallbackRedirectUrl="/onboarding"
+          afterSignUpUrl="/onboarding"
           signInUrl="/sign-in"
         />
 

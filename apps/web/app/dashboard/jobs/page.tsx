@@ -19,7 +19,7 @@ import {
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
-import type { Job, Customer, CreateJobInput } from '../../../lib/types';
+import type { Job, Customer, CreateJobInput, JobType, JobPriority } from '../../../lib/types';
 import { rules, validateForm, hasErrors, type ValidationErrors } from '../../../lib/validation';
 import { FormField, TextInput, TextArea, FormErrorBanner } from '../../../components/ui/FormField';
 
@@ -74,8 +74,8 @@ function CreateJobModal({
 }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [type, setType] = useState('repair');
-  const [priority, setPriority] = useState('normal');
+  const [type, setType] = useState<JobType>('repair');
+  const [priority, setPriority] = useState<JobPriority>('normal');
   const [customerId, setCustomerId] = useState('');
   const [customerSearch, setCustomerSearch] = useState('');
   const [scheduledAt, setScheduledAt] = useState('');
@@ -140,12 +140,17 @@ function CreateJobModal({
       return;
     }
 
+    if (!customerId) {
+      setError('Please select a customer');
+      return;
+    }
+
     createMutation.mutate({
       title: title.trim(),
       description: description.trim(),
       type,
       priority,
-      customerId: customerId || undefined,
+      customerId,
       scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
       estimatedValue: estimatedValue ? Math.round(parseFloat(estimatedValue) * 100) : undefined,
       status: 'lead',
@@ -257,7 +262,7 @@ function CreateJobModal({
               </label>
               <select
                 value={type}
-                onChange={(e) => setType(e.target.value)}
+                onChange={(e) => setType(e.target.value as JobType)}
                 className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 min-h-[44px]"
               >
                 {jobTypes.map((t) => (
@@ -271,7 +276,7 @@ function CreateJobModal({
               </label>
               <select
                 value={priority}
-                onChange={(e) => setPriority(e.target.value)}
+                onChange={(e) => setPriority(e.target.value as JobPriority)}
                 className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 min-h-[44px]"
               >
                 {priorities.map((p) => (
@@ -418,7 +423,7 @@ function JobCard({ job }: { job: Job }) {
         {(job.estimatedValue || job.actualValue) && (
           <div className="flex items-center gap-1 font-bold text-green-500">
             <DollarSign className="w-4 h-4" />
-            <span>{((job.actualValue || job.estimatedValue) / 100).toLocaleString()}</span>
+            <span>{((job.actualValue ?? job.estimatedValue ?? 0) / 100).toLocaleString()}</span>
           </div>
         )}
       </div>
