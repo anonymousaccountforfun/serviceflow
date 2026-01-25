@@ -10,7 +10,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { Clerk } from '@clerk/backend';
 import { z } from 'zod';
 import { requireRole } from '../middleware/auth';
@@ -230,7 +230,7 @@ router.patch('/:id', requireTeamManagement, async (req: Request, res: Response) 
     // Update the role
     const updated = await prisma.user.update({
       where: { id },
-      data: { role: data.role as any },
+      data: { role: data.role as Prisma.UserUpdateInput['role'] },
       select: {
         id: true,
         email: true,

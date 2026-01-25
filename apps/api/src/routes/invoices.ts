@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { z } from 'zod';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -89,7 +90,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing invoices:', error);
+    logger.error('Error listing invoices', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list invoices' },
@@ -121,7 +122,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: invoice });
   } catch (error) {
-    console.error('Error getting invoice:', error);
+    logger.error('Error getting invoice', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get invoice' },
@@ -184,7 +185,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({ success: true, data: invoice });
   } catch (error) {
-    console.error('Error creating invoice:', error);
+    logger.error('Error creating invoice', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to create invoice' },
@@ -262,7 +263,7 @@ router.patch('/:id', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error updating invoice:', error);
+    logger.error('Error updating invoice', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update invoice' },
@@ -302,7 +303,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ success: true, data: { voided: true } });
   } catch (error) {
-    console.error('Error voiding invoice:', error);
+    logger.error('Error voiding invoice', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to void invoice' },
@@ -341,7 +342,7 @@ router.post('/:id/send', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error sending invoice:', error);
+    logger.error('Error sending invoice', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to send invoice' },
@@ -410,7 +411,7 @@ router.post('/:id/record-payment', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error recording payment:', error);
+    logger.error('Error recording payment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to record payment' },

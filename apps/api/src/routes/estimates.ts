@@ -9,6 +9,7 @@ import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { z } from 'zod';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -130,7 +131,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing estimates:', error);
+    logger.error('Error listing estimates', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list estimates' },
@@ -163,7 +164,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: estimate });
   } catch (error) {
-    console.error('Error getting estimate:', error);
+    logger.error('Error getting estimate', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get estimate' },
@@ -257,7 +258,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({ success: true, data: estimate });
   } catch (error) {
-    console.error('Error creating estimate:', error);
+    logger.error('Error creating estimate', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to create estimate' },
@@ -347,7 +348,7 @@ router.patch('/:id', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error updating estimate:', error);
+    logger.error('Error updating estimate', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update estimate' },
@@ -390,7 +391,7 @@ router.post('/:id/void', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error voiding estimate:', error);
+    logger.error('Error voiding estimate', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to void estimate' },
@@ -449,7 +450,7 @@ router.post('/:id/send', async (req, res) => {
       publicUrl: `/quote/${updated.publicToken}`,
     });
   } catch (error) {
-    console.error('Error sending estimate:', error);
+    logger.error('Error sending estimate', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to send estimate' },
@@ -533,7 +534,7 @@ router.post('/:id/convert', async (req, res) => {
 
     res.status(201).json({ success: true, data: invoice });
   } catch (error) {
-    console.error('Error converting estimate:', error);
+    logger.error('Error converting estimate', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to convert estimate to invoice' },

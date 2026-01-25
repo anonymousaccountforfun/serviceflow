@@ -1,7 +1,8 @@
 import { Router } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
-import { BusinessHours, parseOrgSettings, AppointmentWhereInput } from '../types';
+import { BusinessHours, parseOrgSettings } from '../types';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.get('/day/:date', async (req, res) => {
     const dayStart = new Date(`${date}T00:00:00.000Z`);
     const dayEnd = new Date(`${date}T23:59:59.999Z`);
 
-    const where: any = {
+    const where: Prisma.AppointmentWhereInput = {
       organizationId: orgId,
       scheduledAt: { gte: dayStart, lte: dayEnd },
       status: { notIn: ['canceled'] },
@@ -45,7 +46,7 @@ router.get('/day/:date', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting day calendar:', error);
+    logger.error('Error getting day calendar', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get calendar' },
@@ -69,7 +70,7 @@ router.get('/week/:date', async (req, res) => {
     endDate.setDate(endDate.getDate() + 6); // Saturday
     endDate.setHours(23, 59, 59, 999);
 
-    const where: any = {
+    const where: Prisma.AppointmentWhereInput = {
       organizationId: orgId,
       scheduledAt: { gte: startDate, lte: endDate },
       status: { notIn: ['canceled'] },
@@ -111,7 +112,7 @@ router.get('/week/:date', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting week calendar:', error);
+    logger.error('Error getting week calendar', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get calendar' },
@@ -130,7 +131,7 @@ router.get('/month/:year/:month', async (req, res) => {
     const startDate = new Date(year, month, 1);
     const endDate = new Date(year, month + 1, 0, 23, 59, 59, 999);
 
-    const where: any = {
+    const where: Prisma.AppointmentWhereInput = {
       organizationId: orgId,
       scheduledAt: { gte: startDate, lte: endDate },
       status: { notIn: ['canceled'] },
@@ -165,7 +166,7 @@ router.get('/month/:year/:month', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting month calendar:', error);
+    logger.error('Error getting month calendar', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get calendar' },
@@ -237,7 +238,7 @@ router.get('/availability', async (req, res) => {
     dayEnd.setHours(closeHour, closeMin, 0, 0);
 
     // Get existing appointments for the day
-    const where: any = {
+    const where: Prisma.AppointmentWhereInput = {
       organizationId: orgId,
       scheduledAt: { gte: dayStart, lt: dayEnd },
       status: { notIn: ['canceled', 'completed', 'no_show'] },
@@ -297,7 +298,7 @@ router.get('/availability', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error checking availability:', error);
+    logger.error('Error checking availability', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to check availability' },
@@ -371,7 +372,7 @@ router.get('/technicians', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting technician schedules:', error);
+    logger.error('Error getting technician schedules', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get technician schedules' },
@@ -418,7 +419,7 @@ router.get('/unassigned', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting unassigned appointments:', error);
+    logger.error('Error getting unassigned appointments', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get unassigned appointments' },

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { createJobSchema, updateJobSchema, jobPaginationSchema } from '@serviceflow/shared';
 import { events, JobCompletedEventData } from '../services/events';
 import { logger } from '../lib/logger';
@@ -14,8 +14,8 @@ router.get('/', async (req, res) => {
     const status = req.query.status as string | undefined;
     const customerId = req.query.customerId as string | undefined;
 
-    const where: any = { organizationId: orgId };
-    if (status) where.status = status;
+    const where: Prisma.JobWhereInput = { organizationId: orgId };
+    if (status) where.status = status as Prisma.JobWhereInput['status'];
     if (customerId) where.customerId = customerId;
 
     const [jobs, total] = await Promise.all([
@@ -105,12 +105,16 @@ router.post('/', async (req, res) => {
 
     const job = await prisma.job.create({
       data: {
-        ...data,
+        title: data.title || 'Untitled Job',
+        customerId: data.customerId!,
         organizationId: orgId,
-        type: data.type as any,
-        priority: data.priority as any,
+        type: data.type,
+        priority: data.priority,
+        description: data.description,
+        assignedToId: data.assignedToId,
+        estimatedValue: data.estimatedValue,
         scheduledAt: data.scheduledAt ? new Date(data.scheduledAt) : undefined,
-      } as any,
+      },
       include: {
         customer: { select: { firstName: true, lastName: true } },
       },
@@ -134,7 +138,7 @@ router.patch('/:id', async (req, res) => {
     const data = updateJobSchema.parse(req.body);
 
     // Build update data with proper date conversions
-    const updateData: any = { ...data };
+    const updateData: Prisma.JobUncheckedUpdateManyInput = { ...data };
     if (data.scheduledAt) updateData.scheduledAt = new Date(data.scheduledAt);
     if (data.startedAt) updateData.startedAt = new Date(data.startedAt);
     if (data.completedAt) updateData.completedAt = new Date(data.completedAt);

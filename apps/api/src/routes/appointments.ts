@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { createAppointmentSchema, rescheduleAppointmentSchema, paginationSchema } from '@serviceflow/shared';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -19,14 +20,14 @@ router.get('/', async (req, res) => {
     const status = req.query.status as string | undefined;
     const assignedToId = req.query.assignedToId as string | undefined;
 
-    const where: any = { organizationId: orgId };
+    const where: Prisma.AppointmentWhereInput = { organizationId: orgId };
 
     if (startDate || endDate) {
       where.scheduledAt = {};
       if (startDate) where.scheduledAt.gte = startDate;
       if (endDate) where.scheduledAt.lte = endDate;
     }
-    if (status) where.status = status;
+    if (status) where.status = status as Prisma.AppointmentWhereInput['status'];
     if (assignedToId) where.assignedToId = assignedToId;
 
     const [appointments, total] = await Promise.all([
@@ -55,7 +56,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing appointments:', error instanceof Error ? error.message : String(error));
+    logger.error('Error listing appointments', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list appointments' },
@@ -91,7 +92,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: appointment });
   } catch (error) {
-    console.error('Error getting appointment:', error instanceof Error ? error.message : String(error));
+    logger.error('Error getting appointment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get appointment' },
@@ -171,7 +172,7 @@ router.post('/', async (req, res) => {
 
     res.status(201).json({ success: true, data: appointment });
   } catch (error) {
-    console.error('Error creating appointment:', error instanceof Error ? error.message : String(error));
+    logger.error('Error creating appointment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to create appointment' },
@@ -216,7 +217,7 @@ router.patch('/:id', async (req, res) => {
       }
     }
 
-    const updateData: any = {};
+    const updateData: Prisma.AppointmentUncheckedUpdateInput = {};
     if (status) updateData.status = status;
     if (assignedToId !== undefined) updateData.assignedToId = assignedToId;
     if (notes !== undefined) updateData.notes = notes;
@@ -246,7 +247,7 @@ router.patch('/:id', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error updating appointment:', error instanceof Error ? error.message : String(error));
+    logger.error('Error updating appointment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update appointment' },
@@ -311,7 +312,7 @@ router.post('/:id/reschedule', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error rescheduling appointment:', error instanceof Error ? error.message : String(error));
+    logger.error('Error rescheduling appointment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to reschedule appointment' },
@@ -344,7 +345,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ success: true, data: { canceled: true } });
   } catch (error) {
-    console.error('Error canceling appointment:', error instanceof Error ? error.message : String(error));
+    logger.error('Error canceling appointment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to cancel appointment' },

@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { z } from 'zod';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -114,7 +115,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing templates:', error);
+    logger.error('Error listing templates', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list templates' },
@@ -155,7 +156,7 @@ router.get('/:id', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting template:', error);
+    logger.error('Error getting template', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get template' },
@@ -212,7 +213,7 @@ router.get('/type/:type', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error getting template by type:', error);
+    logger.error('Error getting template by type', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get template' },
@@ -259,7 +260,7 @@ router.post('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error creating template:', error);
+    logger.error('Error creating template', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to create template' },
@@ -303,7 +304,7 @@ router.patch('/:id', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error updating template:', error);
+    logger.error('Error updating template', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update template' },
@@ -332,7 +333,7 @@ router.delete('/:id', async (req, res) => {
 
     res.json({ success: true, data: { deleted: true } });
   } catch (error) {
-    console.error('Error deleting template:', error);
+    logger.error('Error deleting template', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to delete template' },
@@ -384,7 +385,7 @@ router.post('/:id/preview', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error previewing template:', error);
+    logger.error('Error previewing template', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to preview template' },

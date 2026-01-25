@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { createCustomerSchema, updateCustomerSchema, customerPaginationSchema } from '@serviceflow/shared';
 import { logger } from '../lib/logger';
 
@@ -80,15 +80,21 @@ router.post('/', async (req, res) => {
 
     const customer = await prisma.customer.create({
       data: {
-        ...data,
+        firstName: data.firstName || '',
+        lastName: data.lastName || '',
         organizationId: orgId,
-        source: (data.source as any) || 'manual',
-      } as any,
+        email: data.email,
+        phone: data.phone,
+        address: data.address,
+        notes: data.notes,
+        tags: data.tags,
+        source: data.source || 'manual',
+      },
     });
 
     res.status(201).json({ success: true, data: customer });
-  } catch (error: any) {
-    if (error.code === 'P2002') {
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
       return res.status(409).json({
         success: false,
         error: { code: 'E3002', message: 'Customer with this phone already exists' },

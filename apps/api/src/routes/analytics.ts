@@ -10,6 +10,7 @@
 
 import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
+import { logger } from '../lib/logger';
 import {
   StatusGroupBy,
   DirectionGroupBy,
@@ -226,7 +227,7 @@ router.get('/dashboard', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching dashboard data:', error);
+    logger.error('Error fetching dashboard data', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch dashboard data' },
@@ -241,7 +242,7 @@ router.get('/dashboard', async (req, res) => {
 router.get('/overview', async (req, res) => {
   try {
     const orgId = req.auth!.organizationId;
-    const { period, startDate, endDate } = req.query as any;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     // Calculate previous period for comparison
@@ -373,7 +374,7 @@ router.get('/overview', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching analytics overview:', error);
+    logger.error('Error fetching analytics overview', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch analytics' },
@@ -388,7 +389,7 @@ router.get('/overview', async (req, res) => {
 router.get('/calls', async (req, res) => {
   try {
     const orgId = req.auth!.organizationId;
-    const { period, startDate, endDate } = req.query as any;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     const [
@@ -461,7 +462,7 @@ router.get('/calls', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching call analytics:', error);
+    logger.error('Error fetching call analytics', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch call analytics' },
@@ -476,7 +477,7 @@ router.get('/calls', async (req, res) => {
 router.get('/revenue', async (req, res) => {
   try {
     const orgId = req.auth!.organizationId;
-    const { period, startDate, endDate } = req.query as any;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     const [
@@ -559,7 +560,7 @@ router.get('/revenue', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching revenue analytics:', error);
+    logger.error('Error fetching revenue analytics', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch revenue analytics' },
@@ -574,7 +575,7 @@ router.get('/revenue', async (req, res) => {
 router.get('/customers', async (req, res) => {
   try {
     const orgId = req.auth!.organizationId;
-    const { period, startDate, endDate } = req.query as any;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     const [
@@ -634,7 +635,7 @@ router.get('/customers', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching customer analytics:', error);
+    logger.error('Error fetching customer analytics', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch customer analytics' },
@@ -649,7 +650,7 @@ router.get('/customers', async (req, res) => {
 router.get('/conversations', async (req, res) => {
   try {
     const orgId = req.auth!.organizationId;
-    const { period, startDate, endDate } = req.query as any;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
     const { start, end } = getDateRange(period, startDate, endDate);
 
     const [
@@ -715,7 +716,7 @@ router.get('/conversations', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error fetching conversation analytics:', error);
+    logger.error('Error fetching conversation analytics', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch conversation analytics' },

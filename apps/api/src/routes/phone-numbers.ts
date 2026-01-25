@@ -11,6 +11,7 @@
 import { Router, Request, Response } from 'express';
 import twilio from 'twilio';
 import { prisma } from '@serviceflow/database';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -46,8 +47,8 @@ router.get('/', async (req: Request, res: Response) => {
       success: true,
       data: phoneNumbers,
     });
-  } catch (error: any) {
-    console.error('Get phone numbers error:', error);
+  } catch (error) {
+    logger.error('Get phone numbers error', error);
     res.status(500).json({
       success: false,
       error: { code: 'E5001', message: 'Failed to get phone numbers' },
@@ -104,7 +105,7 @@ router.get('/search', async (req: Request, res: Response) => {
       data: formattedNumbers,
     });
   } catch (error: any) {
-    console.error('Search phone numbers error:', error);
+    logger.error('Search phone numbers error', error);
 
     // Handle Twilio-specific errors
     if (error.code === 20404) {
@@ -196,7 +197,7 @@ router.post('/provision', async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`📞 Provisioned phone number: ${purchasedNumber.phoneNumber} for org ${orgId}`);
+    logger.info('Provisioned phone number', { phoneNumber: purchasedNumber.phoneNumber, organizationId: orgId });
 
     res.json({
       success: true,
@@ -209,8 +210,8 @@ router.post('/provision', async (req: Request, res: Response) => {
         isActive: newPhoneNumber.isActive,
       },
     });
-  } catch (error: any) {
-    console.error('Provision phone number error:', error);
+  } catch (error) {
+    logger.error('Provision phone number error', error);
 
     // Handle Twilio-specific errors
     if (error.code === 21422) {
@@ -310,7 +311,7 @@ router.post('/use-existing', async (req: Request, res: Response) => {
       },
     });
 
-    console.log(`📞 Registered external phone number: ${normalizedNumber} for org ${orgId}`);
+    logger.info('Registered external phone number', { phoneNumber: normalizedNumber, organizationId: orgId });
 
     res.json({
       success: true,
@@ -323,8 +324,8 @@ router.post('/use-existing', async (req: Request, res: Response) => {
         isExternal: true,
       },
     });
-  } catch (error: any) {
-    console.error('Register existing phone number error:', error);
+  } catch (error) {
+    logger.error('Register existing phone number error', error);
     res.status(500).json({
       success: false,
       error: { code: 'E5005', message: error.message || 'Failed to register phone number' },
@@ -358,9 +359,9 @@ router.delete('/:id', async (req: Request, res: Response) => {
       if (client) {
         try {
           await client.incomingPhoneNumbers(phoneNumber.twilioSid).remove();
-          console.log(`📞 Released Twilio number: ${phoneNumber.number}`);
-        } catch (twilioError: any) {
-          console.error('Failed to release Twilio number:', twilioError);
+          logger.info('Released Twilio number', { phoneNumber: phoneNumber.number });
+        } catch (twilioError) {
+          logger.error('Failed to release Twilio number', twilioError);
           // Continue with deletion even if Twilio release fails
         }
       }
@@ -376,7 +377,7 @@ router.delete('/:id', async (req: Request, res: Response) => {
       message: 'Phone number released successfully',
     });
   } catch (error: any) {
-    console.error('Delete phone number error:', error);
+    logger.error('Delete phone number error', error);
     res.status(500).json({
       success: false,
       error: { code: 'E5006', message: error.message || 'Failed to delete phone number' },
@@ -417,7 +418,7 @@ router.get('/status', async (req: Request, res: Response) => {
       },
     });
   } catch (error: any) {
-    console.error('Get phone status error:', error);
+    logger.error('Get phone status error', error);
     res.status(500).json({
       success: false,
       error: { code: 'E5007', message: error.message || 'Failed to get phone status' },

@@ -1,8 +1,9 @@
 import { Router } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { sms } from '../services/sms';
 import { findOrCreateConversation } from '../services/conversation';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -13,8 +14,8 @@ router.get('/', async (req, res) => {
     const orgId = req.auth!.organizationId;
     const status = req.query.status as string | undefined;
 
-    const where: any = { organizationId: orgId };
-    if (status) where.status = status;
+    const where: Prisma.ConversationWhereInput = { organizationId: orgId };
+    if (status) where.status = status as Prisma.ConversationWhereInput['status'];
 
     const [conversations, total] = await Promise.all([
       prisma.conversation.findMany({
@@ -41,7 +42,7 @@ router.get('/', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error listing conversations:', error);
+    logger.error('Error listing conversations', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to list conversations' },
@@ -73,7 +74,7 @@ router.get('/:id', async (req, res) => {
 
     res.json({ success: true, data: conversation });
   } catch (error) {
-    console.error('Error getting conversation:', error);
+    logger.error('Error getting conversation', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to get conversation' },
@@ -142,7 +143,7 @@ router.post('/:id/messages', async (req, res) => {
       data: message || { id: result.twilioSid, content, status: 'sent' },
     });
   } catch (error) {
-    console.error('Error sending message:', error);
+    logger.error('Error sending message', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to send message' },
@@ -223,7 +224,7 @@ router.post('/', async (req, res) => {
       data: conversation,
     });
   } catch (error) {
-    console.error('Error starting conversation:', error);
+    logger.error('Error starting conversation', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to start conversation' },
@@ -265,7 +266,7 @@ router.patch('/:id', async (req, res) => {
 
     res.json({ success: true, data: updated });
   } catch (error) {
-    console.error('Error updating conversation:', error);
+    logger.error('Error updating conversation', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to update conversation' },
