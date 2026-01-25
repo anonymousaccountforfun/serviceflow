@@ -8,7 +8,7 @@ const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
 // POST /api/users/me/avatar - Upload avatar image
 export async function POST(request: Request) {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
@@ -82,7 +82,7 @@ export async function POST(request: Request) {
 // DELETE /api/users/me/avatar - Remove avatar image
 export async function DELETE() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(

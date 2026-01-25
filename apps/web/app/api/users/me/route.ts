@@ -5,7 +5,7 @@ import { prisma } from '@serviceflow/database';
 // GET /api/users/me - Get current user profile
 export async function GET() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
@@ -50,7 +50,7 @@ export async function GET() {
 // PATCH /api/users/me - Update current user profile
 export async function PATCH(request: Request) {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
@@ -118,7 +118,7 @@ export async function PATCH(request: Request) {
 // DELETE /api/users/me - Delete current user account
 export async function DELETE() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(

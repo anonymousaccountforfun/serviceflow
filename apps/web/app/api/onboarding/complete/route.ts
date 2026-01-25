@@ -24,7 +24,7 @@ interface OnboardingData {
 
 export async function POST(request: Request) {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(

@@ -47,7 +47,7 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
 // GET /api/users/me/notifications - Get notification preferences
 export async function GET() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
@@ -85,7 +85,7 @@ export async function GET() {
 // PUT /api/users/me/notifications - Update notification preferences
 export async function PUT(request: Request) {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(

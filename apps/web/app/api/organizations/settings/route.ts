@@ -5,7 +5,7 @@ import { prisma } from '@serviceflow/database';
 // GET /api/organizations/settings - Get organization settings
 export async function GET() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
@@ -43,7 +43,7 @@ export async function GET() {
 // PUT /api/organizations/settings - Update organization settings
 export async function PUT(request: Request) {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(

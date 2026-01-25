@@ -6,7 +6,7 @@ import { prisma } from '@serviceflow/database';
 // Creates User + Organization on first sign-in
 export async function POST() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
@@ -144,7 +144,7 @@ export async function POST() {
 // GET method to fetch current user data
 export async function GET() {
   try {
-    const { userId: clerkId } = await auth();
+    const { userId: clerkId } = auth();
 
     if (!clerkId) {
       return NextResponse.json(
