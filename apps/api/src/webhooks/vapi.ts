@@ -12,6 +12,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@serviceflow/database';
 import { events } from '../services/events';
 import { vapi } from '../services/vapi';
+import { logger } from '../lib/logger';
 import crypto from 'crypto';
 
 const router = Router();
@@ -80,20 +81,20 @@ const verifySignature = (req: Request, res: Response, next: Function) => {
   // If no secret configured, fail secure in production
   if (!secret) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('⚠️ CRITICAL: VAPI_WEBHOOK_SECRET not set in production - rejecting webhook');
+      logger.error('CRITICAL: VAPI_WEBHOOK_SECRET not set in production - rejecting webhook');
       return res.status(503).json({
         success: false,
         error: { code: 'E5002', message: 'Webhook service misconfigured' },
       });
     }
     // Only allow bypass in development/test environments
-    console.warn('⚠️ Development mode: Vapi webhook signature validation skipped');
+    logger.warn('Development mode: Vapi webhook signature validation skipped');
     return next();
   }
 
   const signature = req.headers['x-vapi-signature'] as string;
   if (!signature) {
-    console.warn(`⚠️ Vapi webhook rejected: Missing signature from ${req.ip}`);
+    logger.warn('Vapi webhook rejected: Missing signature', { ip: req.ip });
     return res.status(401).json({
       success: false,
       error: { code: 'E4007', message: 'Missing webhook signature' },
@@ -108,10 +109,7 @@ const verifySignature = (req: Request, res: Response, next: Function) => {
     .digest('hex');
 
   if (signature !== expectedSignature) {
-    console.warn(
-      `⚠️ Vapi webhook rejected: Invalid signature from ${req.ip}`,
-      { path: req.path }
-    );
+    logger.warn('Vapi webhook rejected: Invalid signature', { ip: req.ip, path: req.path });
     return res.status(403).json({
       success: false,
       error: { code: 'E4007', message: 'Invalid webhook signature' },
@@ -136,7 +134,7 @@ router.post('/', verifySignature, async (req: Request, res: Response) => {
     try {
       body = JSON.parse(body.toString());
     } catch (e) {
-      console.error('Failed to parse Vapi webhook body:', e);
+      logger.error('Failed to parse Vapi webhook body', e);
       return res.status(400).json({ error: 'Invalid JSON' });
     }
   }
@@ -148,7 +146,7 @@ router.post('/', verifySignature, async (req: Request, res: Response) => {
 
   // Only log non-frequent events
   if (messageType && !['speech-update', 'conversation-update', 'model-output', 'voice-input', 'user-interrupted'].includes(messageType)) {
-    console.log(`🤖 Vapi webhook: ${messageType}`);
+    logger.info('Vapi webhook received', { type: messageType });
   }
 
   try {
@@ -193,13 +191,13 @@ router.post('/', verifySignature, async (req: Request, res: Response) => {
 
       default:
         if (messageType) {
-          console.log(`Unhandled Vapi event type: ${messageType}`);
+          logger.debug('Unhandled Vapi event type', { type: messageType });
         }
     }
 
     res.json({ success: true });
   } catch (error) {
-    console.error('Error handling Vapi webhook:', error);
+    logger.error('Error handling Vapi webhook', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });
@@ -211,7 +209,7 @@ async function handleStatusUpdate(payload: VapiWebhookPayload): Promise<void> {
   const { call } = payload.message;
   if (!call) return;
 
-  console.log(`📞 Vapi call status: ${call.id} -> ${call.status}`);
+  logger.info('Vapi call status', { callId: call.id, status: call.status });
 
   // Find our call record by vapiCallId
   const callRecord = await prisma.call.findFirst({
@@ -219,7 +217,7 @@ async function handleStatusUpdate(payload: VapiWebhookPayload): Promise<void> {
   });
 
   if (!callRecord) {
-    console.log(`No call record found for Vapi call: ${call.id}`);
+    logger.warn('No call record found for Vapi call', { callId: call.id });
     return;
   }
 
@@ -323,7 +321,7 @@ async function handleEndOfCall(payload: VapiWebhookPayload): Promise<void> {
   const { call, analysis, artifact, endedReason } = payload.message;
   if (!call) return;
 
-  console.log(`📞 Vapi call ended: ${call.id} - ${endedReason}`);
+  logger.info('Vapi call ended', { callId: call.id, reason: endedReason });
 
   // Find our call record
   const callRecord = await prisma.call.findFirst({
@@ -332,7 +330,7 @@ async function handleEndOfCall(payload: VapiWebhookPayload): Promise<void> {
   });
 
   if (!callRecord) {
-    console.log(`No call record found for Vapi call: ${call.id}`);
+    logger.warn('No call record found for Vapi call', { callId: call.id });
     return;
   }
 
@@ -373,7 +371,7 @@ async function handleEndOfCall(payload: VapiWebhookPayload): Promise<void> {
     },
   });
 
-  console.log(`✅ Vapi call completed: ${callRecord.id} (${duration}s)`);
+  logger.info('Vapi call completed', { callId: callRecord.id, durationSeconds: duration });
 }
 
 /**
@@ -408,7 +406,7 @@ async function handleHangup(payload: VapiWebhookPayload): Promise<void> {
 router.post('/assistant-request', async (req: Request, res: Response) => {
   const { call } = req.body;
 
-  console.log(`🤖 Vapi assistant request for call: ${call?.id}`);
+  logger.info('Vapi assistant request', { callId: call?.id });
 
   try {
     // Get organization from call metadata or phone number
@@ -464,7 +462,7 @@ router.post('/assistant-request', async (req: Request, res: Response) => {
       },
     });
   } catch (error) {
-    console.error('Error handling assistant request:', error);
+    logger.error('Error handling assistant request', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

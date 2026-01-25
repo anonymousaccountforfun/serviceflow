@@ -14,6 +14,7 @@ import { sms } from '../services/sms';
 import { vapi } from '../services/vapi';
 import { logWebhook, markWebhookProcessed, markWebhookIgnored } from '../services/webhooks';
 import { findOrCreateConversation, updateLastMessageTime } from '../services/conversation';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -46,20 +47,20 @@ const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) 
   // If no auth token configured, fail secure in production
   if (!authToken) {
     if (process.env.NODE_ENV === 'production') {
-      console.error('⚠️ CRITICAL: TWILIO_AUTH_TOKEN not set in production - rejecting webhook');
+      logger.error('CRITICAL: TWILIO_AUTH_TOKEN not set in production - rejecting webhook');
       return res.status(503).json({
         success: false,
         error: { code: 'E5001', message: 'Webhook service misconfigured' },
       });
     }
     // Only allow bypass in development/test environments
-    console.warn('⚠️ Development mode: Twilio webhook signature validation skipped');
+    logger.warn('Development mode: Twilio webhook signature validation skipped');
     return next();
   }
 
   const signature = req.headers['x-twilio-signature'] as string;
   if (!signature) {
-    console.warn(`⚠️ Twilio webhook rejected: Missing signature from ${req.ip}`);
+    logger.warn('Twilio webhook rejected: Missing signature', { ip: req.ip });
     return res.status(401).json({
       success: false,
       error: { code: 'E4001', message: 'Missing webhook signature' },
@@ -71,10 +72,7 @@ const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) 
   const isValid = twilio.validateRequest(authToken, signature, url, req.body);
 
   if (!isValid) {
-    console.warn(
-      `⚠️ Twilio webhook rejected: Invalid signature from ${req.ip}`,
-      { url, path: req.path }
-    );
+    logger.warn('Twilio webhook rejected: Invalid signature', { ip: req.ip, url, path: req.path });
     return res.status(403).json({
       success: false,
       error: { code: 'E4001', message: 'Invalid webhook signature' },
@@ -110,7 +108,7 @@ router.post('/voice', async (req: Request, res: Response) => {
   try {
     // Normalize phone numbers (URLSearchParams converts + to space in form data)
     const normalizedTo = normalizePhone(To);
-    console.log(`📞 Incoming call: ${From} -> ${To} (normalized: ${normalizedTo}) (${CallStatus})`);
+    logger.info('Incoming call', { from: From, to: To, normalizedTo, status: CallStatus });
 
     // 1. Find organization by phone number
     const phoneNumber = normalizedTo ? await prisma.phoneNumber.findUnique({
@@ -119,7 +117,7 @@ router.post('/voice', async (req: Request, res: Response) => {
     }) : null;
 
     if (!phoneNumber) {
-      console.error(`No organization found for number: ${To}`);
+      logger.error('No organization found for number', { to: To });
       await markWebhookIgnored(webhookId);
 
       const twiml = new twilio.twiml.VoiceResponse();
@@ -192,7 +190,7 @@ router.post('/voice', async (req: Request, res: Response) => {
 
     if (useVapiAI) {
       // Route to Vapi AI assistant
-      console.log(`🤖 Routing call to Vapi AI for ${phoneNumber.organization.name}`);
+      logger.info('Routing call to Vapi AI', { organization: phoneNumber.organization.name });
 
       try {
         // Get or create Vapi assistant for this organization
@@ -211,13 +209,13 @@ router.post('/voice', async (req: Request, res: Response) => {
           twilioNumber: To,
         });
 
-        console.log(`📞 Connected call ${call.id} to Vapi assistant ${assistantId}`);
+        logger.info('Connected call to Vapi assistant', { callId: call.id, assistantId });
 
         // Return Vapi's TwiML directly
         await markWebhookProcessed(webhookId);
         return res.type('text/xml').send(vapiTwiml);
       } catch (error) {
-        console.error('Error connecting to Vapi:', error);
+        logger.error('Error connecting to Vapi', error);
         // Fall back to voicemail if Vapi fails
         const greeting = aiSettings.greeting ||
           `Thanks for calling ${phoneNumber.organization.name}. We're currently helping another customer.`;
@@ -255,7 +253,7 @@ router.post('/voice', async (req: Request, res: Response) => {
     await markWebhookProcessed(webhookId);
     res.type('text/xml').send(twiml.toString());
   } catch (error: any) {
-    console.error('Error handling voice webhook:', error);
+    logger.error('Error handling voice webhook', error);
     await markWebhookProcessed(webhookId, error.message);
 
     const twiml = new twilio.twiml.VoiceResponse();
@@ -279,7 +277,7 @@ router.post('/voice/status', async (req: Request, res: Response) => {
   });
 
   try {
-    console.log(`📞 Call status: ${CallSid} -> ${CallStatus}`);
+    logger.info('Call status update', { callSid: CallSid, status: CallStatus });
 
     // Map Twilio status to our status
     const statusMap: Record<string, string> = {
@@ -349,7 +347,7 @@ router.post('/voice/status', async (req: Request, res: Response) => {
     await markWebhookProcessed(webhookId);
     res.sendStatus(200);
   } catch (error: any) {
-    console.error('Error handling voice status:', error);
+    logger.error('Error handling voice status', error);
     await markWebhookProcessed(webhookId, error.message);
     res.sendStatus(500);
   }
@@ -370,7 +368,7 @@ router.post('/voice/recording', async (req: Request, res: Response) => {
   });
 
   try {
-    console.log(`🎙️ Recording received for ${CallSid}: ${RecordingUrl}`);
+    logger.info('Recording received', { callSid: CallSid, recordingUrl: RecordingUrl });
 
     // Update call with recording URL
     await prisma.call.update({
@@ -388,7 +386,7 @@ router.post('/voice/recording', async (req: Request, res: Response) => {
 
     res.type('text/xml').send(twiml.toString());
   } catch (error) {
-    console.error('Error handling recording webhook:', error);
+    logger.error('Error handling recording webhook', error);
     res.sendStatus(500);
   }
 });
@@ -408,7 +406,7 @@ router.post('/voice/transcription', async (req: Request, res: Response) => {
   });
 
   try {
-    console.log(`📝 Transcription received for ${CallSid}`);
+    logger.info('Transcription received', { callSid: CallSid });
 
     // Update call with transcription
     const call = await prisma.call.update({
@@ -437,7 +435,7 @@ router.post('/voice/transcription', async (req: Request, res: Response) => {
 
     res.sendStatus(200);
   } catch (error) {
-    console.error('Error handling transcription webhook:', error);
+    logger.error('Error handling transcription webhook', error);
     res.sendStatus(500);
   }
 });
@@ -463,7 +461,7 @@ router.post('/sms', async (req: Request, res: Response) => {
   try {
     // Normalize phone numbers (URLSearchParams converts + to space in form data)
     const normalizedTo = normalizePhone(To);
-    console.log(`💬 Incoming SMS: ${From} -> ${To} (normalized: ${normalizedTo}): ${Body?.substring(0, 50)}...`);
+    logger.info('Incoming SMS', { from: From, to: To, normalizedTo, bodyPreview: Body?.substring(0, 50) });
 
     // 1. Find organization by phone number
     const phoneNumber = normalizedTo ? await prisma.phoneNumber.findUnique({
@@ -472,7 +470,7 @@ router.post('/sms', async (req: Request, res: Response) => {
     }) : null;
 
     if (!phoneNumber) {
-      console.error(`No organization found for number: ${To}`);
+      logger.error('No organization found for number', { to: To });
       await markWebhookIgnored(webhookId);
       return res.sendStatus(200);
     }
@@ -563,7 +561,7 @@ router.post('/sms', async (req: Request, res: Response) => {
     // Return empty TwiML (we'll respond asynchronously via AI)
     res.type('text/xml').send('<Response></Response>');
   } catch (error: any) {
-    console.error('Error handling SMS webhook:', error);
+    logger.error('Error handling SMS webhook', error);
     await markWebhookProcessed(webhookId, error.message);
     res.sendStatus(500);
   }
@@ -584,7 +582,7 @@ router.post('/sms/status', async (req: Request, res: Response) => {
   });
 
   try {
-    console.log(`💬 SMS status: ${MessageSid} -> ${MessageStatus}`);
+    logger.info('SMS status update', { messageSid: MessageSid, status: MessageStatus });
 
     // Find message by Twilio SID
     const message = await prisma.message.findFirst({
@@ -641,7 +639,7 @@ router.post('/sms/status', async (req: Request, res: Response) => {
 
     res.sendStatus(200);
   } catch (error) {
-    console.error('Error handling SMS status:', error);
+    logger.error('Error handling SMS status', error);
     res.sendStatus(500);
   }
 });
