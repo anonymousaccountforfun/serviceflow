@@ -20,6 +20,8 @@ import { format } from 'date-fns';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
 import type { Job, Customer, CreateJobInput } from '../../../lib/types';
+import { rules, validateForm, hasErrors, type ValidationErrors } from '../../../lib/validation';
+import { FormField, TextInput, TextArea, FormErrorBanner } from '../../../components/ui/FormField';
 
 const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
   lead: { bg: 'bg-gray-500/20', text: 'text-gray-400', label: 'Lead' },
@@ -55,6 +57,12 @@ const priorities = [
   { value: 'emergency', label: 'Emergency' },
 ];
 
+// Validation schema for job form
+const jobValidationSchema = {
+  title: [rules.required('Job title is required'), rules.minLength(3, 'Title must be at least 3 characters')],
+  estimatedValue: [rules.positiveNumber('Please enter a valid amount')],
+};
+
 function CreateJobModal({
   isOpen,
   onClose,
@@ -74,6 +82,10 @@ function CreateJobModal({
   const [estimatedValue, setEstimatedValue] = useState('');
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
 
+  const [error, setError] = useState<string | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
+
   const { data: customersData } = useQuery({
     queryKey: ['customers', 'search', customerSearch],
     queryFn: () => api.getCustomers({ search: customerSearch }),
@@ -81,8 +93,6 @@ function CreateJobModal({
   });
 
   const customers = customersData?.data || [];
-
-  const [error, setError] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: (data: CreateJobInput) => api.createJob(data),
@@ -106,11 +116,29 @@ function CreateJobModal({
     setCustomerSearch('');
     setScheduledAt('');
     setEstimatedValue('');
+    setTouched({});
+    setValidationErrors({});
+    setError(null);
+  };
+
+  const markTouched = (field: string) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const validateAllFields = () => {
+    const values = { title, estimatedValue };
+    const errors = validateForm(values, jobValidationSchema);
+    setValidationErrors(errors);
+    setTouched({ title: true, estimatedValue: true });
+    return !hasErrors(errors);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim()) return;
+
+    if (!validateAllFields()) {
+      return;
+    }
 
     createMutation.mutate({
       title: title.trim(),
@@ -155,20 +183,26 @@ function CreateJobModal({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-5">
+          {/* API Error Banner */}
+          <FormErrorBanner error={error} />
+
           {/* Title */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Job Title <span className="text-red-500">*</span>
-            </label>
-            <input
+          <FormField
+            label="Job Title"
+            required
+            error={validationErrors.title}
+            touched={touched.title}
+          >
+            <TextInput
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              onBlur={() => markTouched('title')}
               placeholder="e.g., Fix leaking faucet"
-              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
-              required
+              error={validationErrors.title}
+              touched={touched.title}
             />
-          </div>
+          </FormField>
 
           {/* Customer Search */}
           <div className="relative">
@@ -261,45 +295,34 @@ function CreateJobModal({
           </div>
 
           {/* Estimated Value */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Estimated Value (Optional)
-            </label>
-            <div className="relative">
-              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-              <input
-                type="number"
-                value={estimatedValue}
-                onChange={(e) => setEstimatedValue(e.target.value)}
-                placeholder="0.00"
-                step="0.01"
-                min="0"
-                className="w-full pl-10 pr-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
-              />
-            </div>
-          </div>
+          <FormField
+            label="Estimated Value (Optional)"
+            error={validationErrors.estimatedValue}
+            touched={touched.estimatedValue}
+          >
+            <TextInput
+              type="number"
+              value={estimatedValue}
+              onChange={(e) => setEstimatedValue(e.target.value)}
+              onBlur={() => markTouched('estimatedValue')}
+              placeholder="0.00"
+              step="0.01"
+              min="0"
+              icon={<DollarSign className="w-5 h-5" />}
+              error={validationErrors.estimatedValue}
+              touched={touched.estimatedValue}
+            />
+          </FormField>
 
           {/* Description */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Description
-            </label>
-            <textarea
+          <FormField label="Description">
+            <TextArea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="Describe the job..."
               rows={3}
-              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 resize-none"
             />
-          </div>
-
-          {/* Error Message */}
-          {error && (
-            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              {error}
-            </div>
-          )}
+          </FormField>
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
@@ -312,8 +335,7 @@ function CreateJobModal({
             </button>
             <button
               type="submit"
-              disabled={!title.trim() || createMutation.isPending}
-              onClick={() => setError(null)}
+              disabled={createMutation.isPending}
               className="flex-1 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center justify-center gap-2"
             >
               {createMutation.isPending ? (
@@ -460,6 +482,8 @@ export default function JobsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', statusFilter, page],
     queryFn: () => api.getJobs({ status: statusFilter || undefined, page }),
+    // Cache for 30 seconds - job list doesn't change frequently
+    staleTime: 30 * 1000,
   });
 
   const jobs = data?.data || [];

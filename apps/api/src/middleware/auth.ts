@@ -1,6 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { createClerkClient } from '@clerk/backend';
 import { prisma } from '@serviceflow/database';
+import { updateLogContext, logger } from '../lib/logger';
+import { setUser } from '../lib/sentry';
 
 // Extend Express Request type to include auth context
 declare global {
@@ -68,7 +70,7 @@ export async function requireAuth(
       const payload = await clerk.verifyToken(token);
       clerkId = payload.sub;
     } catch (error) {
-      console.error('Token verification failed:', error);
+      logger.warn('Token verification failed', { error: error instanceof Error ? error.message : String(error) });
       return res.status(401).json({
         success: false,
         error: {
@@ -141,9 +143,19 @@ export async function requireAuth(
       organization: user.organization,
     };
 
+    // Update logger context with auth info
+    updateLogContext(req);
+
+    // Set Sentry user context for error tracking
+    setUser({
+      id: user.id,
+      email: user.email,
+      organizationId: user.organizationId,
+    });
+
     next();
   } catch (error) {
-    console.error('Auth middleware error:', error);
+    logger.error('Auth middleware error', error);
     return res.status(500).json({
       success: false,
       error: {
@@ -205,15 +217,21 @@ export async function optionalAuth(
           },
           organization: user.organization,
         };
+        updateLogContext(req);
+        setUser({
+          id: user.id,
+          email: user.email,
+          organizationId: user.organizationId,
+        });
       }
     } catch (error) {
       // Token invalid - continue without auth context
-      console.warn('Optional auth token invalid:', error);
+      logger.debug('Optional auth token invalid', { error: error instanceof Error ? error.message : String(error) });
     }
 
     next();
   } catch (error) {
-    console.error('Optional auth middleware error:', error);
+    logger.error('Optional auth middleware error', error);
     next();
   }
 }

@@ -238,17 +238,8 @@ function EmptyState({
   );
 }
 
-// Today's Schedule widget
-function TodaySchedule() {
-  const today = format(new Date(), 'yyyy-MM-dd');
-
-  const { data, isLoading } = useQuery({
-    queryKey: ['calendar', 'day', today],
-    queryFn: () => api.getCalendarDay(today),
-  });
-
-  const appointments = data?.data?.appointments || [];
-
+// Today's Schedule widget - accepts appointments as prop to avoid separate API call
+function TodaySchedule({ appointments, isLoading }: { appointments: any[]; isLoading: boolean }) {
   if (isLoading) {
     return (
       <div className="bg-surface rounded-lg p-5 lg:p-6">
@@ -392,27 +383,26 @@ function QuickActions() {
 }
 
 export default function DashboardPage() {
-  const { data: analytics } = useQuery({
-    queryKey: ['analytics', 'overview'],
-    queryFn: () => api.getAnalyticsOverview(),
+  // Single API call for all dashboard data - optimized from 3 calls to 1
+  const { data: dashboardData, isLoading } = useQuery({
+    queryKey: ['dashboard'],
+    queryFn: () => api.getDashboardData(),
+    // Cache for 30 seconds to prevent unnecessary refetches
+    staleTime: 30 * 1000,
   });
 
-  const { data: jobsData } = useQuery({
-    queryKey: ['jobs', 'pending'],
-    queryFn: () => api.getJobs({ status: 'lead', limit: 5 }),
-  });
+  const data = dashboardData?.data;
 
-  const stats = analytics?.data || {};
-  const pendingJobs = jobsData?.data || [];
-
-  const callsAnswered = stats?.calls?.answered || 0;
-  const callsMissed = stats?.calls?.missed || 0;
-  const revenue = stats?.revenue?.total || 0;
-  const revenueTrend = stats?.revenue?.change || null;
-  const jobsCompleted = stats?.jobs?.completed || 0;
-  const jobsTrend = stats?.jobs?.change || null;
-  const newCustomers = stats?.customers?.new || 0;
-  const customersTrend = stats?.customers?.change || null;
+  const callsAnswered = data?.calls?.answered || 0;
+  const callsMissed = data?.calls?.missed || 0;
+  const revenue = data?.revenue?.total || 0;
+  const revenueTrend = data?.revenue?.change || null;
+  const jobsCompleted = data?.jobs?.completed || 0;
+  const jobsTrend = data?.jobs?.change || null;
+  const newCustomers = data?.customers?.new || 0;
+  const customersTrend = data?.customers?.change || null;
+  const pendingJobs = data?.pendingJobs || [];
+  const todayAppointments = data?.todayAppointments || [];
 
   const hasData = callsAnswered > 0 || callsMissed > 0 || revenue > 0;
 
@@ -441,8 +431,8 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Today's Schedule */}
-      <TodaySchedule />
+      {/* Today's Schedule - appointments passed as prop to avoid separate API call */}
+      <TodaySchedule appointments={todayAppointments} isLoading={isLoading} />
 
       {/* Secondary Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

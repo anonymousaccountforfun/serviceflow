@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
 import { events } from '../services/events';
 import { sms } from '../services/sms';
+import { reviewSubmitLimiter } from '../middleware/rate-limit';
 
 const router = Router();
 
@@ -194,8 +195,9 @@ router.get('/:id', async (req, res) => {
 
 /**
  * POST /api/reviews/:id/submit - Submit a review (public)
+ * Rate limited: 5 submissions per 15 minutes per IP+review combination
  */
-router.post('/:id/submit', async (req, res) => {
+router.post('/:id/submit', reviewSubmitLimiter, async (req, res) => {
   const { id } = req.params;
   const { rating, feedback } = req.body;
 

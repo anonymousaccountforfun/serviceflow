@@ -41,9 +41,14 @@ function ConversationList({
 
   if (conversations.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-        <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
-        <p>No conversations yet</p>
+      <div className="flex flex-col items-center justify-center h-64 p-6 text-center">
+        <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mb-4">
+          <MessageSquare className="w-8 h-8 text-gray-500" />
+        </div>
+        <h3 className="text-lg font-semibold text-white mb-2">No conversations yet</h3>
+        <p className="text-gray-500 max-w-sm">
+          When customers text your business number, their conversations will appear here.
+        </p>
       </div>
     );
   }
@@ -120,6 +125,8 @@ function MessageThread({
     queryKey: ['conversation', conversationId],
     queryFn: () => api.getConversation(conversationId),
     enabled: !!conversationId,
+    // Cache for 5 seconds - active conversations should be fresh
+    staleTime: 5 * 1000,
   });
 
   const [sendError, setSendError] = useState<string | null>(null);
@@ -220,9 +227,12 @@ function MessageThread({
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-500">
-            <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
-            <p>No messages yet</p>
+          <div className="flex flex-col items-center justify-center h-full text-center p-6">
+            <div className="w-14 h-14 rounded-xl bg-navy-800 flex items-center justify-center mb-4">
+              <MessageSquare className="w-7 h-7 text-gray-500" />
+            </div>
+            <h4 className="text-base font-semibold text-white mb-1">Start the conversation</h4>
+            <p className="text-sm text-gray-500">Send the first message to this customer.</p>
           </div>
         ) : (
           messages.map((msg) => {
@@ -289,6 +299,8 @@ export default function InboxPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['conversations', statusFilter],
     queryFn: () => api.getConversations({ status: statusFilter || undefined }),
+    // Cache for 10 seconds - conversations update frequently
+    staleTime: 10 * 1000,
   });
 
   const updateStatusMutation = useMutation({

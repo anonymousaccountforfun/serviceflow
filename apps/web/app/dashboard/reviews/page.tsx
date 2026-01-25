@@ -255,6 +255,8 @@ export default function ReviewsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['reviews', platformFilter, page],
     queryFn: () => api.getReviews({ platform: platformFilter || undefined, page }),
+    // Cache for 1 minute - reviews change infrequently
+    staleTime: 60 * 1000,
   });
 
   const reviews: Review[] = data?.data || [];
@@ -337,10 +339,23 @@ export default function ReviewsPage() {
           <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mx-auto mb-4">
             <Star className="w-8 h-8 text-gray-500" />
           </div>
-          <h3 className="text-lg font-semibold text-white mb-2">No reviews yet</h3>
-          <p className="text-gray-500">
-            Connect your Google Business Profile to sync reviews
+          <h3 className="text-lg font-semibold text-white mb-2">
+            {platformFilter ? 'No reviews from this platform' : 'No reviews yet'}
+          </h3>
+          <p className="text-gray-500 max-w-sm mx-auto">
+            {platformFilter
+              ? 'Try selecting a different platform filter to see more reviews.'
+              : 'Connect your Google Business Profile to sync reviews, or reviews will appear here when customers rate your service.'}
           </p>
+          {!platformFilter && (
+            <Link
+              href="/dashboard/settings/integrations"
+              className="inline-flex items-center gap-2 mt-6 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px]"
+            >
+              <ExternalLink className="w-4 h-4" />
+              Connect Google
+            </Link>
+          )}
         </div>
       ) : (
         <>

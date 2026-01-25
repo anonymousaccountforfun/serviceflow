@@ -1,11 +1,22 @@
 import 'dotenv/config';
+
+// Initialize Sentry early, before other imports
+import { initSentry, sentryRequestHandler, sentryTracingHandler, sentryErrorHandler, captureException } from './lib/sentry';
+initSentry();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import morgan from 'morgan';
 
+// Validate environment variables at startup
+import { initEnv } from './config/env';
+initEnv();
+
 // Middleware
 import { requireAuth, optionalAuth } from './middleware/auth';
+import { generalLimiter, strictLimiter, webhookLimiter } from './middleware/rate-limit';
+import { requestLogger } from './lib/logger';
 
 // Routes
 import healthRoutes from './routes/health';
@@ -19,6 +30,9 @@ import appointmentRoutes from './routes/appointments';
 import calendarRoutes from './routes/calendar';
 import googleRoutes from './routes/google';
 import phoneNumberRoutes from './routes/phone-numbers';
+import estimateRoutes from './routes/estimates';
+import invoiceRoutes from './routes/invoices';
+import templateRoutes from './routes/templates';
 
 // Event handlers
 import { registerAllHandlers } from './handlers';
@@ -35,16 +49,28 @@ registerAllHandlers();
 // Start SMS queue processor
 smsQueue.start();
 
+// Sentry request handling (must be first)
+app.use(sentryRequestHandler());
+app.use(sentryTracingHandler());
+
 // Middleware
 app.use(helmet());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   credentials: true,
 }));
-app.use(morgan('combined'));
+
+// Use structured logging in production, morgan in development
+if (process.env.NODE_ENV === 'production') {
+  app.use(requestLogger);
+} else {
+  app.use(morgan('dev'));
+  app.use(requestLogger);
+}
 
 // Webhooks need raw body for signature verification (Twilio uses application/x-www-form-urlencoded)
-app.use('/webhooks', express.raw({ type: '*/*' }), webhookRoutes);
+// Higher rate limit for webhooks from trusted providers
+app.use('/webhooks', webhookLimiter, express.raw({ type: '*/*' }), webhookRoutes);
 
 // Regular JSON parsing for other routes
 app.use(express.json());
@@ -52,29 +78,42 @@ app.use(express.json());
 // Public routes (no auth required)
 app.use('/health', healthRoutes);
 
-// Public review link (short URL for SMS) - no auth
-app.use('/r', reviewRoutes);
+// Public review link (short URL for SMS) - strict rate limiting, no auth
+app.use('/r', strictLimiter, reviewRoutes);
 
-// Protected API routes - require authentication
-app.use('/api/customers', requireAuth, customerRoutes);
-app.use('/api/jobs', requireAuth, jobRoutes);
-app.use('/api/conversations', requireAuth, conversationRoutes);
-app.use('/api/reviews', requireAuth, reviewRoutes);
-app.use('/api/analytics', requireAuth, analyticsRoutes);
-app.use('/api/appointments', requireAuth, appointmentRoutes);
-app.use('/api/calendar', requireAuth, calendarRoutes);
-app.use('/api/google', requireAuth, googleRoutes);
-app.use('/api/phone-numbers', requireAuth, phoneNumberRoutes);
+// Protected API routes - require authentication with general rate limiting
+app.use('/api/customers', generalLimiter, requireAuth, customerRoutes);
+app.use('/api/jobs', generalLimiter, requireAuth, jobRoutes);
+app.use('/api/conversations', generalLimiter, requireAuth, conversationRoutes);
+app.use('/api/reviews', generalLimiter, requireAuth, reviewRoutes);
+app.use('/api/analytics', generalLimiter, requireAuth, analyticsRoutes);
+app.use('/api/appointments', generalLimiter, requireAuth, appointmentRoutes);
+app.use('/api/calendar', generalLimiter, requireAuth, calendarRoutes);
+app.use('/api/google', generalLimiter, requireAuth, googleRoutes);
+app.use('/api/phone-numbers', generalLimiter, requireAuth, phoneNumberRoutes);
+app.use('/api/estimates', generalLimiter, requireAuth, estimateRoutes);
+app.use('/api/invoices', generalLimiter, requireAuth, invoiceRoutes);
+app.use('/api/templates', generalLimiter, requireAuth, templateRoutes);
 
-// Error handler
+// Sentry error handler (must be before custom error handler)
+app.use(sentryErrorHandler());
+
+// Custom error handler
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
-  console.error('Unhandled error:', err);
+  // Capture error for tracking (Sentry handler already captured, this is for logging)
+  captureException(err, {
+    path: req.path,
+    method: req.method,
+    userId: req.auth?.userId,
+    organizationId: req.auth?.organizationId,
+  });
+
   res.status(500).json({
     success: false,
     error: {
       code: 'E9001',
-      message: process.env.NODE_ENV === 'production' 
-        ? 'Internal server error' 
+      message: process.env.NODE_ENV === 'production'
+        ? 'Internal server error'
         : err.message,
     },
   });

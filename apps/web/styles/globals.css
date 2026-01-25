@@ -10,10 +10,68 @@
   body {
     @apply bg-white text-gray-900 antialiased;
   }
+
+  /* Accessibility: Focus indicators for keyboard navigation */
+  /* Only show focus ring for keyboard users, not mouse clicks */
+  :focus {
+    outline: none;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-orange-500;
+  }
+
+  /* Ensure interactive elements have visible focus states */
+  a:focus-visible,
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [role="button"]:focus-visible,
+  [tabindex]:focus-visible {
+    @apply outline-2 outline-offset-2 outline-orange-500 ring-2 ring-orange-500/30;
+  }
+
+  /* Better focus for inputs in dark theme */
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    @apply border-orange-500 ring-2 ring-orange-500/30;
+  }
+}
+
+@layer components {
+  /* Skip link for keyboard navigation */
+  .skip-link {
+    @apply sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100]
+           focus:px-4 focus:py-2 focus:bg-orange-500 focus:text-white focus:rounded-lg
+           focus:font-semibold focus:shadow-lg;
+  }
+
+  /* Focus trap indicator for modals */
+  .focus-trap-indicator:focus-visible {
+    @apply outline-2 outline-offset-2 outline-orange-500;
+  }
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+
+  /* Accessibility: Minimum touch target size */
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+
+  /* Reduced motion preference support */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
   }
 }

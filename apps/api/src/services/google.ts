@@ -1,4 +1,18 @@
 import { prisma } from '@serviceflow/database';
+import { logger } from '../lib/logger';
+
+/**
+ * Custom error for Google authentication issues
+ */
+export class GoogleAuthError extends Error {
+  code: string;
+
+  constructor(message: string, code: string) {
+    super(message);
+    this.name = 'GoogleAuthError';
+    this.code = code;
+  }
+}
 
 // Google OAuth configuration
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -126,8 +140,18 @@ class GoogleBusinessProfileService {
     });
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Failed to refresh token: ${error}`);
+      const errorData = await response.json().catch(() => ({ error: 'unknown' }));
+
+      // Check for specific error types
+      if (errorData.error === 'invalid_grant') {
+        // Refresh token revoked or expired - user needs to re-authenticate
+        throw new GoogleAuthError(
+          'Google authorization has been revoked. Please reconnect your Google account.',
+          'REAUTH_REQUIRED'
+        );
+      }
+
+      throw new Error(`Failed to refresh token: ${JSON.stringify(errorData)}`);
     }
 
     return response.json() as Promise<GoogleTokenResponse>;
@@ -142,7 +166,15 @@ class GoogleBusinessProfileService {
     });
 
     if (!credential) {
-      throw new Error('Google account not connected');
+      throw new GoogleAuthError('Google account not connected', 'NOT_CONNECTED');
+    }
+
+    // Check if already marked as requiring re-auth
+    if (credential.syncStatus === 'reauth_required') {
+      throw new GoogleAuthError(
+        'Google authorization has been revoked. Please reconnect your Google account.',
+        'REAUTH_REQUIRED'
+      );
     }
 
     // Check if token is expired (with 5 min buffer)
@@ -151,18 +183,36 @@ class GoogleBusinessProfileService {
     const bufferMs = 5 * 60 * 1000;
 
     if (now.getTime() + bufferMs >= expiresAt.getTime()) {
-      // Token expired, refresh it
-      const tokens = await this.refreshAccessToken(credential.refreshToken);
+      // Token expired, try to refresh it
+      try {
+        const tokens = await this.refreshAccessToken(credential.refreshToken);
 
-      await prisma.googleCredential.update({
-        where: { organizationId },
-        data: {
-          accessToken: tokens.access_token,
-          tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-        },
-      });
+        await prisma.googleCredential.update({
+          where: { organizationId },
+          data: {
+            accessToken: tokens.access_token,
+            tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
+            syncStatus: credential.syncStatus === 'error' ? 'pending' : credential.syncStatus,
+            syncError: null,
+          },
+        });
 
-      return tokens.access_token;
+        logger.info('Refreshed Google token', { organizationId });
+        return tokens.access_token;
+      } catch (error) {
+        // If refresh failed due to revocation, mark for re-auth
+        if (error instanceof GoogleAuthError && error.code === 'REAUTH_REQUIRED') {
+          await prisma.googleCredential.update({
+            where: { organizationId },
+            data: {
+              syncStatus: 'reauth_required',
+              syncError: error.message,
+            },
+          });
+          logger.warn('Google token revoked, re-auth required', { organizationId });
+        }
+        throw error;
+      }
     }
 
     return credential.accessToken;
@@ -442,6 +492,7 @@ class GoogleBusinessProfileService {
    */
   async getStatus(organizationId: string): Promise<{
     connected: boolean;
+    requiresReauth: boolean;
     locationName?: string;
     lastSyncAt?: Date;
     syncStatus?: string;
@@ -458,11 +509,12 @@ class GoogleBusinessProfileService {
     });
 
     if (!credential) {
-      return { connected: false };
+      return { connected: false, requiresReauth: false };
     }
 
     return {
       connected: true,
+      requiresReauth: credential.syncStatus === 'reauth_required',
       locationName: credential.locationName || undefined,
       lastSyncAt: credential.lastSyncAt || undefined,
       syncStatus: credential.syncStatus,

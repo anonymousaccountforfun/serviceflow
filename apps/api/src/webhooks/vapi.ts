@@ -70,30 +70,46 @@ interface VapiWebhookPayload {
 
 /**
  * Verify Vapi webhook signature
+ *
+ * SECURITY: Always validates if VAPI_WEBHOOK_SECRET is configured.
+ * This ensures webhooks are protected in all environments.
  */
 const verifySignature = (req: Request, res: Response, next: Function) => {
   const secret = process.env.VAPI_WEBHOOK_SECRET;
 
-  // Skip verification in development or if no secret configured
-  if (process.env.NODE_ENV !== 'production' || !secret) {
+  // If no secret configured, log warning and continue (allows development without Vapi)
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('⚠️ SECURITY: VAPI_WEBHOOK_SECRET not set in production - webhooks unprotected');
+    }
     return next();
   }
 
   const signature = req.headers['x-vapi-signature'] as string;
   if (!signature) {
-    console.warn('Missing Vapi signature');
-    return res.status(401).json({ error: 'Missing signature' });
+    console.warn(`⚠️ Vapi webhook rejected: Missing signature from ${req.ip}`);
+    return res.status(401).json({
+      success: false,
+      error: { code: 'E4007', message: 'Missing webhook signature' },
+    });
   }
 
-  const payload = JSON.stringify(req.body);
+  // Get raw body for signature verification
+  const payload = Buffer.isBuffer(req.body) ? req.body.toString() : JSON.stringify(req.body);
   const expectedSignature = crypto
     .createHmac('sha256', secret)
     .update(payload)
     .digest('hex');
 
   if (signature !== expectedSignature) {
-    console.warn('Invalid Vapi signature');
-    return res.status(401).json({ error: 'Invalid signature' });
+    console.warn(
+      `⚠️ Vapi webhook rejected: Invalid signature from ${req.ip}`,
+      { path: req.path }
+    );
+    return res.status(403).json({
+      success: false,
+      error: { code: 'E4007', message: 'Invalid webhook signature' },
+    });
   }
 
   next();

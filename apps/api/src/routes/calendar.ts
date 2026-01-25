@@ -1,5 +1,7 @@
 import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
+import { paginationSchema } from '@serviceflow/shared';
+import { BusinessHours, parseOrgSettings, AppointmentWhereInput } from '../types';
 
 const router = Router();
 
@@ -192,8 +194,8 @@ router.get('/availability', async (req, res) => {
       select: { settings: true, timezone: true },
     });
 
-    const settings = org?.settings as { businessHours?: Record<string, { open: string; close: string } | null> } | null;
-    const businessHours = settings?.businessHours;
+    const settings = parseOrgSettings(org?.settings ?? null);
+    const businessHours = settings.businessHours;
 
     // Get day of week
     const checkDate = new Date(date);
@@ -201,7 +203,7 @@ router.get('/availability', async (req, res) => {
     const dayName = dayNames[checkDate.getDay()];
 
     // Default business hours if not configured (Mon-Fri 8am-5pm, Sat 9am-2pm)
-    const defaultHours: Record<string, { open: string; close: string } | null> = {
+    const defaultHours: Record<string, BusinessHours | null> = {
       sunday: null,
       monday: { open: '08:00', close: '17:00' },
       tuesday: { open: '08:00', close: '17:00' },
@@ -380,26 +382,40 @@ router.get('/technicians', async (req, res) => {
 // GET /api/calendar/unassigned - Get appointments without a technician assigned
 router.get('/unassigned', async (req, res) => {
   try {
+    const { page, perPage, sortOrder } = paginationSchema.parse(req.query);
     const orgId = req.auth!.organizationId;
 
-    // Get upcoming unassigned appointments
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        organizationId: orgId,
-        assignedToId: null,
-        scheduledAt: { gte: new Date() },
-        status: { notIn: ['canceled', 'completed'] },
-      },
-      include: {
-        job: { select: { id: true, title: true, type: true, priority: true } },
-        customer: { select: { firstName: true, lastName: true, phone: true, address: true } },
-      },
-      orderBy: { scheduledAt: 'asc' },
-    });
+    const where = {
+      organizationId: orgId,
+      assignedToId: null,
+      scheduledAt: { gte: new Date() },
+      status: { notIn: ['canceled', 'completed'] as const },
+    };
+
+    // Get upcoming unassigned appointments with pagination
+    const [appointments, total] = await Promise.all([
+      prisma.appointment.findMany({
+        where,
+        include: {
+          job: { select: { id: true, title: true, type: true, priority: true } },
+          customer: { select: { firstName: true, lastName: true, phone: true, address: true } },
+        },
+        orderBy: { scheduledAt: sortOrder },
+        skip: (page - 1) * perPage,
+        take: perPage,
+      }),
+      prisma.appointment.count({ where }),
+    ]);
 
     res.json({
       success: true,
       data: appointments,
+      meta: {
+        page,
+        perPage,
+        total,
+        totalPages: Math.ceil(total / perPage),
+      },
     });
   } catch (error) {
     console.error('Error getting unassigned appointments:', error);

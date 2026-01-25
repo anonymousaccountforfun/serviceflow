@@ -12,6 +12,7 @@ import twilio from 'twilio';
 import { prisma } from '@serviceflow/database';
 import { interpolate, isQuietHours, TIMING } from '@serviceflow/shared';
 import { events, SmsSentEventData } from './events';
+import { findOrCreateConversation, updateLastMessageTime } from './conversation';
 
 // ============================================
 // TYPES
@@ -111,27 +112,9 @@ class SmsService {
         // Still create conversation and message records for testing
         let activeConversationId = conversationId;
         if (!activeConversationId && !skipRecord) {
-          let conversation = await prisma.conversation.findFirst({
-            where: {
-              organizationId,
-              customerId,
-              channel: 'sms',
-              status: { in: ['open', 'pending'] },
-            },
-          });
-
-          if (!conversation) {
-            conversation = await prisma.conversation.create({
-              data: {
-                organizationId,
-                customerId,
-                channel: 'sms',
-                status: 'open',
-                aiHandled: true,
-              },
-            });
-          }
-          activeConversationId = conversation.id;
+          // Use atomic find-or-create to prevent race conditions
+          const result = await findOrCreateConversation(organizationId, customerId, 'sms', true);
+          activeConversationId = result.id;
         }
 
         let messageRecord;
@@ -229,31 +212,11 @@ class SmsService {
 
       console.log(`📤 SMS sent: ${twilioMessage.sid} -> ${to}`);
 
-      // 5. Create or find conversation
+      // 5. Create or find conversation (atomic to prevent race conditions)
       let activeConversationId = conversationId;
       if (!activeConversationId && !skipRecord) {
-        // Find or create conversation
-        let conversation = await prisma.conversation.findFirst({
-          where: {
-            organizationId,
-            customerId,
-            channel: 'sms',
-            status: { in: ['open', 'pending'] },
-          },
-        });
-
-        if (!conversation) {
-          conversation = await prisma.conversation.create({
-            data: {
-              organizationId,
-              customerId,
-              channel: 'sms',
-              status: 'open',
-              aiHandled: true,
-            },
-          });
-        }
-        activeConversationId = conversation.id;
+        const result = await findOrCreateConversation(organizationId, customerId, 'sms', true);
+        activeConversationId = result.id;
       }
 
       // 6. Create message record
@@ -275,10 +238,7 @@ class SmsService {
         });
 
         // Update conversation last message time
-        await prisma.conversation.update({
-          where: { id: activeConversationId },
-          data: { lastMessageAt: new Date() },
-        });
+        await updateLastMessageTime(activeConversationId);
       }
 
       // 7. Emit event

@@ -40,6 +40,50 @@ interface AnalyticsOverview {
   missedCalls: number;
 }
 
+interface DashboardData {
+  calls: {
+    total: number;
+    answered: number;
+    missed: number;
+  };
+  revenue: {
+    total: number;
+    change: number | null;
+  };
+  jobs: {
+    completed: number;
+    change: number | null;
+  };
+  customers: {
+    new: number;
+    change: number | null;
+  };
+  pendingJobs: Array<{
+    id: string;
+    title: string;
+    customer?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+    };
+  }>;
+  todayAppointments: Array<{
+    id: string;
+    scheduledAt: string;
+    job?: {
+      id: string;
+      title: string;
+    };
+    customer?: {
+      id: string;
+      firstName: string;
+      lastName: string;
+      address?: any;
+      city?: string;
+    };
+  }>;
+}
+
 interface CalendarSlot {
   start: string;
   end: string;
@@ -124,6 +168,14 @@ class ApiClient {
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
     return this.request<AnalyticsOverview>('GET', `/api/analytics/overview?${params}`);
+  }
+
+  /**
+   * Get combined dashboard data in a single API call
+   * Optimizes dashboard page by reducing 3 API calls to 1
+   */
+  async getDashboardData() {
+    return this.request<DashboardData>('GET', '/api/analytics/dashboard');
   }
 
   async getAnalyticsCalls(startDate?: string, endDate?: string) {

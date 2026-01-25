@@ -10,6 +10,15 @@
 
 import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
+import {
+  StatusGroupBy,
+  DirectionGroupBy,
+  ChannelGroupBy,
+  AIHandledGroupBy,
+  TypeGroupBy,
+  SourceGroupBy,
+  DateRangeQuery,
+} from '../types';
 
 const router = Router();
 
@@ -68,6 +77,163 @@ function percentChange(current: number, previous: number): number | null {
 // ============================================
 // ROUTES
 // ============================================
+
+/**
+ * GET /api/analytics/dashboard
+ * Combined dashboard endpoint - returns all data needed for dashboard in one call
+ * Optimizes by reducing multiple API calls to a single request
+ */
+router.get('/dashboard', async (req, res) => {
+  try {
+    const orgId = req.auth!.organizationId;
+
+    // Calculate date ranges
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayEnd = new Date(todayStart.getTime() + 24 * 60 * 60 * 1000 - 1);
+    const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+    // Previous periods for comparison
+    const prevWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+
+    // Run all queries in parallel for maximum performance
+    const [
+      // Today's calls
+      todayCalls,
+      todayMissedCalls,
+      // Monthly revenue
+      monthlyRevenue,
+      prevMonthlyRevenue,
+      // Weekly jobs
+      weeklyCompletedJobs,
+      prevWeeklyCompletedJobs,
+      // Weekly customers
+      weeklyNewCustomers,
+      prevWeeklyNewCustomers,
+      // Pending jobs for action required
+      pendingJobs,
+      // Today's appointments
+      todayAppointments,
+    ] = await Promise.all([
+      // Today's calls
+      prisma.call.count({
+        where: { organizationId: orgId, createdAt: { gte: todayStart, lte: todayEnd } },
+      }),
+      prisma.call.count({
+        where: {
+          organizationId: orgId,
+          createdAt: { gte: todayStart, lte: todayEnd },
+          status: { in: ['no_answer', 'busy', 'voicemail'] },
+        },
+      }),
+      // Monthly revenue
+      prisma.job.aggregate({
+        where: {
+          organizationId: orgId,
+          completedAt: { gte: monthStart },
+          status: 'completed',
+        },
+        _sum: { actualValue: true },
+      }),
+      prisma.job.aggregate({
+        where: {
+          organizationId: orgId,
+          completedAt: { gte: prevMonthStart, lte: prevMonthEnd },
+          status: 'completed',
+        },
+        _sum: { actualValue: true },
+      }),
+      // Weekly completed jobs
+      prisma.job.count({
+        where: {
+          organizationId: orgId,
+          completedAt: { gte: weekStart },
+          status: 'completed',
+        },
+      }),
+      prisma.job.count({
+        where: {
+          organizationId: orgId,
+          completedAt: { gte: prevWeekStart, lt: weekStart },
+          status: 'completed',
+        },
+      }),
+      // Weekly new customers
+      prisma.customer.count({
+        where: { organizationId: orgId, createdAt: { gte: weekStart } },
+      }),
+      prisma.customer.count({
+        where: { organizationId: orgId, createdAt: { gte: prevWeekStart, lt: weekStart } },
+      }),
+      // Pending jobs (lead status) for action required section
+      prisma.job.findMany({
+        where: { organizationId: orgId, status: 'lead' },
+        orderBy: { createdAt: 'desc' },
+        take: 5,
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true } },
+        },
+      }),
+      // Today's appointments
+      prisma.appointment.findMany({
+        where: {
+          organizationId: orgId,
+          scheduledAt: { gte: todayStart, lt: todayEnd },
+        },
+        orderBy: { scheduledAt: 'asc' },
+        include: {
+          job: { select: { id: true, title: true } },
+          customer: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              address: true,
+              city: true,
+            },
+          },
+        },
+      }),
+    ]);
+
+    const revenue = monthlyRevenue._sum.actualValue || 0;
+    const prevRevenue = prevMonthlyRevenue._sum.actualValue || 0;
+
+    res.json({
+      success: true,
+      data: {
+        calls: {
+          total: todayCalls,
+          answered: todayCalls - todayMissedCalls,
+          missed: todayMissedCalls,
+        },
+        revenue: {
+          total: revenue,
+          change: percentChange(revenue, prevRevenue),
+        },
+        jobs: {
+          completed: weeklyCompletedJobs,
+          change: percentChange(weeklyCompletedJobs, prevWeeklyCompletedJobs),
+        },
+        customers: {
+          new: weeklyNewCustomers,
+          change: percentChange(weeklyNewCustomers, prevWeeklyNewCustomers),
+        },
+        pendingJobs,
+        todayAppointments,
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard data:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch dashboard data' },
+    });
+  }
+});
 
 /**
  * GET /api/analytics/overview
@@ -272,13 +438,13 @@ router.get('/calls', async (req, res) => {
 
     // Transform groupBy results to objects
     const statusCounts: Record<string, number> = {};
-    byStatus.forEach((s: { status: string; _count: number }) => { statusCounts[s.status] = s._count; });
+    (byStatus as StatusGroupBy[]).forEach((s) => { statusCounts[s.status] = s._count; });
 
     const directionCounts: Record<string, number> = {};
-    byDirection.forEach((d: { direction: string; _count: number }) => { directionCounts[d.direction] = d._count; });
+    (byDirection as DirectionGroupBy[]).forEach((d) => { directionCounts[d.direction] = d._count; });
 
     const aiCounts = { human: 0, ai: 0 };
-    aiHandled.forEach((a: { aiHandled: boolean; _count: number }) => {
+    (aiHandled as AIHandledGroupBy[]).forEach((a) => {
       if (a.aiHandled) aiCounts.ai = a._count;
       else aiCounts.human = a._count;
     });
@@ -364,16 +530,16 @@ router.get('/revenue', async (req, res) => {
 
     // Transform byType
     const revenueByType: Record<string, { revenue: number; count: number }> = {};
-    byType.forEach((t: { type: string; _sum: { actualValue: number | null }; _count: number }) => {
+    (byType as TypeGroupBy[]).forEach((t) => {
       revenueByType[t.type] = {
-        revenue: t._sum.actualValue || 0,
+        revenue: t._sum?.actualValue || 0,
         count: t._count,
       };
     });
 
     // Transform byStatus
     const jobsByStatus: Record<string, number> = {};
-    byStatus.forEach((s: { status: string; _count: number }) => { jobsByStatus[s.status] = s._count; });
+    (byStatus as StatusGroupBy[]).forEach((s) => { jobsByStatus[s.status] = s._count; });
 
     res.json({
       success: true,
@@ -449,7 +615,7 @@ router.get('/customers', async (req, res) => {
 
     // Transform bySource
     const customersBySource: Record<string, number> = {};
-    bySource.forEach((s: { source: string | null; _count: number }) => {
+    (bySource as SourceGroupBy[]).forEach((s) => {
       customersBySource[s.source || 'unknown'] = s._count;
     });
 
@@ -522,13 +688,13 @@ router.get('/conversations', async (req, res) => {
 
     // Transform results
     const conversationsByStatus: Record<string, number> = {};
-    byStatus.forEach((s: { status: string; _count: number }) => { conversationsByStatus[s.status] = s._count; });
+    (byStatus as StatusGroupBy[]).forEach((s) => { conversationsByStatus[s.status] = s._count; });
 
     const conversationsByChannel: Record<string, number> = {};
-    byChannel.forEach((c: { channel: string; _count: number }) => { conversationsByChannel[c.channel] = c._count; });
+    (byChannel as ChannelGroupBy[]).forEach((c) => { conversationsByChannel[c.channel] = c._count; });
 
     const messages = { inbound: 0, outbound: 0 };
-    messageStats.forEach((m: { direction: string; _count: number }) => {
+    (messageStats as DirectionGroupBy[]).forEach((m) => {
       if (m.direction === 'inbound') messages.inbound = m._count;
       else messages.outbound = m._count;
     });

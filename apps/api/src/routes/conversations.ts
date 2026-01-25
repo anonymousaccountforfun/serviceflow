@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { sms } from '../services/sms';
+import { findOrCreateConversation } from '../services/conversation';
 
 const router = Router();
 
@@ -188,21 +189,14 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Check for existing open conversation
-    let conversation = await prisma.conversation.findFirst({
-      where: {
-        organizationId: orgId,
-        customerId,
-        channel: 'sms',
-        status: { in: ['open', 'pending'] },
-      },
-    });
+    // Find or create conversation atomically to prevent race conditions
+    const conversationResult = await findOrCreateConversation(orgId, customerId, 'sms', false);
 
-    // Send the message (will create conversation if needed)
+    // Send the message
     const result = await sms.send({
       organizationId: orgId,
       customerId,
-      conversationId: conversation?.id,
+      conversationId: conversationResult.id,
       to: customer.phone,
       message: message.trim(),
       senderType: 'user',
@@ -215,14 +209,9 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Get the conversation (either existing or newly created)
-    conversation = await prisma.conversation.findFirst({
-      where: {
-        organizationId: orgId,
-        customerId,
-        channel: 'sms',
-      },
-      orderBy: { createdAt: 'desc' },
+    // Get the full conversation with messages
+    const conversation = await prisma.conversation.findUnique({
+      where: { id: conversationResult.id },
       include: {
         customer: true,
         messages: { orderBy: { createdAt: 'asc' } },

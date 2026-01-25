@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { gbp } from '../services/google';
+import { gbp, GoogleAuthError } from '../services/google';
+import { logger } from '../lib/logger';
 
 const router = Router();
 
@@ -10,7 +11,7 @@ router.get('/status', async (req, res) => {
     const status = await gbp.getStatus(orgId);
     res.json({ success: true, data: status });
   } catch (error) {
-    console.error('Error getting Google status:', error instanceof Error ? error.message : error);
+    logger.error('Error getting Google status', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: 'Failed to get Google status' },
@@ -25,7 +26,7 @@ router.get('/connect', async (req, res) => {
     const authUrl = gbp.getAuthUrl(orgId);
     res.json({ success: true, data: { authUrl } });
   } catch (error) {
-    console.error('Error generating auth URL:', error instanceof Error ? error.message : error);
+    logger.error('Error generating auth URL', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: error instanceof Error ? error.message : 'Failed to generate auth URL' },
@@ -59,7 +60,7 @@ router.get('/callback', async (req, res) => {
     // Redirect to settings page with success
     res.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/settings/integrations?google=connected`);
   } catch (error) {
-    console.error('OAuth callback error:', error instanceof Error ? error.message : error);
+    logger.error('OAuth callback error', error);
     res.redirect(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/settings/integrations?error=auth_failed`);
   }
 });
@@ -71,7 +72,20 @@ router.get('/accounts', async (req, res) => {
     const accounts = await gbp.listAccounts(orgId);
     res.json({ success: true, data: accounts });
   } catch (error) {
-    console.error('Error listing accounts:', error instanceof Error ? error.message : error);
+    logger.error('Error listing accounts', error);
+
+    // Handle re-authentication required
+    if (error instanceof GoogleAuthError && error.code === 'REAUTH_REQUIRED') {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code: 'E4010',
+          message: error.message,
+          requiresReauth: true,
+        },
+      });
+    }
+
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: error instanceof Error ? error.message : 'Failed to list accounts' },
@@ -87,7 +101,7 @@ router.get('/accounts/:accountId/locations', async (req, res) => {
     const locations = await gbp.listLocations(orgId, accountId);
     res.json({ success: true, data: locations });
   } catch (error) {
-    console.error('Error listing locations:', error instanceof Error ? error.message : error);
+    logger.error('Error listing locations', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: error instanceof Error ? error.message : 'Failed to list locations' },
@@ -111,7 +125,7 @@ router.post('/locations/select', async (req, res) => {
     await gbp.selectLocation(orgId, accountId, locationId, locationName);
     res.json({ success: true, data: { selected: true } });
   } catch (error) {
-    console.error('Error selecting location:', error instanceof Error ? error.message : error);
+    logger.error('Error selecting location', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: 'Failed to select location' },
@@ -126,7 +140,7 @@ router.get('/reviews', async (req, res) => {
     const reviews = await gbp.getReviews(orgId);
     res.json({ success: true, data: reviews });
   } catch (error) {
-    console.error('Error getting reviews:', error instanceof Error ? error.message : error);
+    logger.error('Error getting reviews', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: error instanceof Error ? error.message : 'Failed to get reviews' },
@@ -148,7 +162,7 @@ router.post('/reviews/sync', async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Error syncing reviews:', error instanceof Error ? error.message : error);
+    logger.error('Error syncing reviews', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: error instanceof Error ? error.message : 'Failed to sync reviews' },
@@ -173,7 +187,7 @@ router.post('/reviews/:reviewId/reply', async (req, res) => {
     await gbp.replyToReview(orgId, reviewId, comment.trim());
     res.json({ success: true, data: { replied: true } });
   } catch (error) {
-    console.error('Error replying to review:', error instanceof Error ? error.message : error);
+    logger.error('Error replying to review', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: error instanceof Error ? error.message : 'Failed to reply to review' },
@@ -188,7 +202,7 @@ router.delete('/disconnect', async (req, res) => {
     await gbp.disconnect(orgId);
     res.json({ success: true, data: { disconnected: true } });
   } catch (error) {
-    console.error('Error disconnecting:', error instanceof Error ? error.message : error);
+    logger.error('Error disconnecting', error);
     res.status(500).json({
       success: false,
       error: { code: 'E4004', message: 'Failed to disconnect Google account' },

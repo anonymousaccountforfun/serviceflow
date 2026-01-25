@@ -101,7 +101,8 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
             </Link>
             <button
               onClick={onClose}
-              className="lg:hidden p-2 hover:bg-white/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
+              className="lg:hidden p-2 hover:bg-white/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+              aria-label="Close navigation menu"
             >
               <X className="w-5 h-5 text-white" />
             </button>
@@ -122,6 +123,7 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
                   className={`
                     flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold
                     transition-all duration-150 min-h-[44px]
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950
                     ${isActive
                       ? 'bg-accent text-white'
                       : 'text-gray-400 hover:bg-white/5 hover:text-white'
@@ -140,14 +142,14 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
           <div className="px-3 py-4 border-t border-white/10 space-y-1">
             <Link
               href="/dashboard/settings"
-              className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold text-gray-400 hover:bg-white/5 hover:text-white transition-all min-h-[44px]"
+              className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold text-gray-400 hover:bg-white/5 hover:text-white transition-all min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
             >
               <Settings className="w-5 h-5" />
               Settings
             </Link>
             <SignOutButton>
               <button
-                className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold text-gray-400 hover:bg-white/5 hover:text-white transition-all w-full text-left min-h-[44px]"
+                className="flex items-center gap-3 px-3 py-3 rounded-lg text-sm font-semibold text-gray-400 hover:bg-white/5 hover:text-white transition-all w-full text-left min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-950"
               >
                 <LogOut className="w-5 h-5" />
                 Sign out
@@ -187,6 +189,11 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="min-h-screen bg-navy-900">
+      {/* Skip link for keyboard navigation */}
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
       {/* Main content */}
@@ -195,7 +202,8 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
         <header className="sticky top-0 z-30 h-14 bg-navy-950/90 backdrop-blur-sm border-b border-white/5 flex items-center px-4 lg:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 hover:bg-white/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="lg:hidden p-2 hover:bg-white/10 rounded-lg min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            aria-label="Open navigation menu"
           >
             <Menu className="w-5 h-5 text-white" />
           </button>
@@ -207,7 +215,7 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
         </header>
 
         {/* Page content */}
-        <main className="flex-1 p-4 lg:p-6">
+        <main id="main-content" className="flex-1 p-4 lg:p-6" tabIndex={-1}>
           {children}
         </main>
       </div>

@@ -194,7 +194,7 @@ model Conversation {
   // Relations
   organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer       Customer           @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  assignedTo     User?              @relation("AssignedAgent", fields: [assignedToId], references: [id])
+  assignedTo     User?              @relation("AssignedAgent", fields: [assignedToId], references: [id], onDelete: SetNull)
   messages       Message[]
   calls          Call[]
 
@@ -232,7 +232,7 @@ model Message {
 
   // Relations
   conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  sender         User?         @relation("MessageSender", fields: [senderId], references: [id])
+  sender         User?         @relation("MessageSender", fields: [senderId], references: [id], onDelete: SetNull)
 
   @@index([conversationId])
   @@index([conversationId, createdAt])
@@ -289,9 +289,9 @@ model Call {
   createdAt        DateTime      @default(now())
 
   // Relations
-  conversation   Conversation? @relation(fields: [conversationId], references: [id])
+  conversation   Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
   organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer       Customer?     @relation(fields: [customerId], references: [id])
+  customer       Customer?     @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([customerId])
@@ -341,7 +341,7 @@ model Job {
   // Relations
   organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer       Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  assignedTo     User?         @relation("AssignedTechnician", fields: [assignedToId], references: [id])
+  assignedTo     User?         @relation("AssignedTechnician", fields: [assignedToId], references: [id], onDelete: SetNull)
   estimates      Estimate[]
   invoices       Invoice[]
   appointments   Appointment[]
@@ -447,7 +447,7 @@ model Invoice {
 
   // Relations
   job                   Job           @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  estimate              Estimate?     @relation(fields: [estimateId], references: [id])
+  estimate              Estimate?     @relation(fields: [estimateId], references: [id], onDelete: SetNull)
   organization          Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer              Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
 
@@ -491,7 +491,7 @@ model Appointment {
   job             Job               @relation(fields: [jobId], references: [id], onDelete: Cascade)
   organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   customer        Customer          @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  assignedTo      User?             @relation("AssignedTechnician", fields: [assignedToId], references: [id])
+  assignedTo      User?             @relation("AssignedTechnician", fields: [assignedToId], references: [id], onDelete: SetNull)
 
   @@index([organizationId])
   @@index([jobId])
@@ -531,8 +531,8 @@ model Review {
 
   // Relations
   organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer       Customer?      @relation(fields: [customerId], references: [id])
-  job            Job?           @relation(fields: [jobId], references: [id])
+  customer       Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  job            Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, platform, externalId])
   @@index([organizationId])

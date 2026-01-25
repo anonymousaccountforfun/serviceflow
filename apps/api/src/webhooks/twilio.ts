@@ -13,6 +13,7 @@ import { events, CallMissedEventData, SmsReceivedEventData } from '../services/e
 import { sms } from '../services/sms';
 import { vapi } from '../services/vapi';
 import { logWebhook, markWebhookProcessed, markWebhookIgnored } from '../services/webhooks';
+import { findOrCreateConversation, updateLastMessageTime } from '../services/conversation';
 
 const router = Router();
 
@@ -34,25 +35,46 @@ const parseTwilioBody = (req: Request, res: Response, next: NextFunction) => {
 };
 
 /**
- * Validate Twilio signature in production
+ * Validate Twilio webhook signature
+ *
+ * SECURITY: Always validates if TWILIO_AUTH_TOKEN is configured.
+ * This ensures webhooks are protected in all environments.
  */
 const validateTwilioRequest = (req: Request, res: Response, next: NextFunction) => {
-  if (process.env.NODE_ENV === 'production' && process.env.TWILIO_AUTH_TOKEN) {
-    const signature = req.headers['x-twilio-signature'] as string;
-    const url = `${process.env.API_URL}${req.originalUrl}`;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
 
-    const isValid = twilio.validateRequest(
-      process.env.TWILIO_AUTH_TOKEN,
-      signature,
-      url,
-      req.body
-    );
-
-    if (!isValid) {
-      console.warn('Invalid Twilio signature');
-      return res.status(403).send('Invalid signature');
+  // If no auth token configured, log warning and continue (allows development without Twilio)
+  if (!authToken) {
+    if (process.env.NODE_ENV === 'production') {
+      console.error('⚠️ SECURITY: TWILIO_AUTH_TOKEN not set in production - webhooks unprotected');
     }
+    return next();
   }
+
+  const signature = req.headers['x-twilio-signature'] as string;
+  if (!signature) {
+    console.warn(`⚠️ Twilio webhook rejected: Missing signature from ${req.ip}`);
+    return res.status(401).json({
+      success: false,
+      error: { code: 'E4001', message: 'Missing webhook signature' },
+    });
+  }
+
+  const url = `${process.env.API_URL}${req.originalUrl}`;
+
+  const isValid = twilio.validateRequest(authToken, signature, url, req.body);
+
+  if (!isValid) {
+    console.warn(
+      `⚠️ Twilio webhook rejected: Invalid signature from ${req.ip}`,
+      { url, path: req.path }
+    );
+    return res.status(403).json({
+      success: false,
+      error: { code: 'E4001', message: 'Invalid webhook signature' },
+    });
+  }
+
   next();
 };
 
@@ -482,31 +504,19 @@ router.post('/sms', async (req: Request, res: Response) => {
       });
     }
 
-    // 4. Find or create conversation
-    let conversation = await prisma.conversation.findFirst({
-      where: {
-        organizationId: phoneNumber.organizationId,
-        customerId: customer.id,
-        channel: 'sms',
-        status: { in: ['open', 'pending'] },
-      },
-    });
-
-    if (!conversation) {
-      conversation = await prisma.conversation.create({
-        data: {
-          organizationId: phoneNumber.organizationId,
-          customerId: customer.id,
-          channel: 'sms',
-          status: 'open',
-        },
-      });
-    }
+    // 4. Find or create conversation (atomic to prevent race conditions)
+    const conversationResult = await findOrCreateConversation(
+      phoneNumber.organizationId,
+      customer.id,
+      'sms',
+      false // Not AI-handled by default for inbound
+    );
+    const conversationId = conversationResult.id;
 
     // 5. Create message record
     const message = await prisma.message.create({
       data: {
-        conversationId: conversation.id,
+        conversationId,
         direction: 'inbound',
         senderType: 'customer',
         content: Body,
@@ -516,10 +526,7 @@ router.post('/sms', async (req: Request, res: Response) => {
     });
 
     // 6. Update conversation and customer
-    await prisma.conversation.update({
-      where: { id: conversation.id },
-      data: { lastMessageAt: new Date() },
-    });
+    await updateLastMessageTime(conversationId);
 
     await prisma.customer.update({
       where: { id: customer.id },
@@ -534,7 +541,7 @@ router.post('/sms', async (req: Request, res: Response) => {
       aggregateId: message.id,
       data: {
         messageId: message.id,
-        conversationId: conversation.id,
+        conversationId,
         customerId: customer.id,
         from: From,
         to: To,

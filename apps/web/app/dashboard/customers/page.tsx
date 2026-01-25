@@ -17,6 +17,8 @@ import { format } from 'date-fns';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
 import type { Customer, CreateCustomerInput } from '../../../lib/types';
+import { rules, validateForm, hasErrors, formatPhoneNumber, type ValidationErrors } from '../../../lib/validation';
+import { FormField, TextInput, FormErrorBanner } from '../../../components/ui/FormField';
 
 const sourceOptions = [
   { value: 'referral', label: 'Referral' },
@@ -26,6 +28,15 @@ const sourceOptions = [
   { value: 'social_media', label: 'Social Media' },
   { value: 'other', label: 'Other' },
 ];
+
+// Validation schema for customer form
+const customerValidationSchema = {
+  firstName: [rules.required('First name is required')],
+  phone: [rules.required('Phone number is required'), rules.phone()],
+  email: [rules.email()],
+  state: [rules.state()],
+  zip: [rules.zip()],
+};
 
 function CreateCustomerModal({
   isOpen,
@@ -47,6 +58,8 @@ function CreateCustomerModal({
   const [source, setSource] = useState('referral');
 
   const [error, setError] = useState<string | null>(null);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [validationErrors, setValidationErrors] = useState<ValidationErrors>({});
 
   const createMutation = useMutation({
     mutationFn: (data: CreateCustomerInput) => api.createCustomer(data),
@@ -71,11 +84,30 @@ function CreateCustomerModal({
     setState('');
     setZip('');
     setSource('referral');
+    setTouched({});
+    setValidationErrors({});
+    setError(null);
+  };
+
+  const markTouched = (field: string) => {
+    setTouched((prev) => ({ ...prev, [field]: true }));
+  };
+
+  const validateAllFields = () => {
+    const values = { firstName, phone, email, state, zip };
+    const errors = validateForm(values, customerValidationSchema);
+    setValidationErrors(errors);
+    // Mark all fields as touched
+    setTouched({ firstName: true, phone: true, email: true, state: true, zip: true });
+    return !hasErrors(errors);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firstName.trim() || !phone.trim()) return;
+
+    if (!validateAllFields()) {
+      return;
+    }
 
     createMutation.mutate({
       firstName: firstName.trim(),
@@ -90,24 +122,35 @@ function CreateCustomerModal({
     });
   };
 
+  const handlePhoneChange = (value: string) => {
+    setPhone(formatPhoneNumber(value));
+  };
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="modal-title"
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/70"
         onClick={onClose}
+        aria-hidden="true"
       />
 
       {/* Modal */}
       <div className="relative w-full max-w-lg bg-navy-900 rounded-xl shadow-2xl border border-white/10 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-white/10">
-          <h2 className="text-xl font-bold text-white">Add Customer</h2>
+          <h2 id="modal-title" className="text-xl font-bold text-white">Add Customer</h2>
           <button
             onClick={onClose}
-            className="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5 text-gray-400" />
           </button>
@@ -115,154 +158,155 @@ function CreateCustomerModal({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-5 space-y-5">
+          {/* API Error Banner */}
+          <FormErrorBanner error={error} />
+
           {/* Name Row */}
           <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-semibold text-gray-400 mb-2">
-                First Name <span className="text-red-500">*</span>
-              </label>
-              <input
+            <FormField
+              label="First Name"
+              required
+              error={validationErrors.firstName}
+              touched={touched.firstName}
+            >
+              <TextInput
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
+                onBlur={() => markTouched('firstName')}
                 placeholder="John"
-                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
-                required
+                error={validationErrors.firstName}
+                touched={touched.firstName}
               />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold text-gray-400 mb-2">
-                Last Name
-              </label>
-              <input
+            </FormField>
+            <FormField label="Last Name">
+              <TextInput
                 type="text"
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
                 placeholder="Smith"
-                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
               />
-            </div>
+            </FormField>
           </div>
 
           {/* Phone */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Phone <span className="text-red-500">*</span>
-            </label>
-            <div className="relative">
-              <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                placeholder="(555) 123-4567"
-                className="w-full pl-10 pr-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
-                required
-              />
-            </div>
-          </div>
+          <FormField
+            label="Phone"
+            required
+            error={validationErrors.phone}
+            touched={touched.phone}
+          >
+            <TextInput
+              type="tel"
+              value={phone}
+              onChange={(e) => handlePhoneChange(e.target.value)}
+              onBlur={() => markTouched('phone')}
+              placeholder="(555) 123-4567"
+              icon={<Phone className="w-5 h-5" />}
+              error={validationErrors.phone}
+              touched={touched.phone}
+            />
+          </FormField>
 
           {/* Email */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Email
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="john@example.com"
-                className="w-full pl-10 pr-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
-              />
-            </div>
-          </div>
+          <FormField
+            label="Email"
+            error={validationErrors.email}
+            touched={touched.email}
+          >
+            <TextInput
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onBlur={() => markTouched('email')}
+              placeholder="john@example.com"
+              icon={<Mail className="w-5 h-5" />}
+              error={validationErrors.email}
+              touched={touched.email}
+            />
+          </FormField>
 
           {/* Address */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              Street Address
-            </label>
-            <input
+          <FormField label="Street Address">
+            <TextInput
               type="text"
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="123 Main St"
-              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
             />
-          </div>
+          </FormField>
 
           {/* City, State, Zip */}
           <div className="grid grid-cols-6 gap-4">
-            <div className="col-span-3">
-              <label className="block text-sm font-semibold text-gray-400 mb-2">
-                City
-              </label>
-              <input
+            <FormField label="City" className="col-span-3">
+              <TextInput
                 type="text"
                 value={city}
                 onChange={(e) => setCity(e.target.value)}
                 placeholder="New York"
-                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
               />
-            </div>
-            <div className="col-span-1">
-              <label className="block text-sm font-semibold text-gray-400 mb-2">
-                State
-              </label>
-              <input
+            </FormField>
+            <FormField
+              label="State"
+              error={validationErrors.state}
+              touched={touched.state}
+              className="col-span-1"
+            >
+              <TextInput
                 type="text"
                 value={state}
-                onChange={(e) => setState(e.target.value)}
+                onChange={(e) => setState(e.target.value.toUpperCase())}
+                onBlur={() => markTouched('state')}
                 placeholder="NY"
                 maxLength={2}
-                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
+                error={validationErrors.state}
+                touched={touched.state}
               />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-sm font-semibold text-gray-400 mb-2">
-                ZIP
-              </label>
-              <input
+            </FormField>
+            <FormField
+              label="ZIP"
+              error={validationErrors.zip}
+              touched={touched.zip}
+              className="col-span-2"
+            >
+              <TextInput
                 type="text"
                 value={zip}
                 onChange={(e) => setZip(e.target.value)}
+                onBlur={() => markTouched('zip')}
                 placeholder="10001"
-                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
+                error={validationErrors.zip}
+                touched={touched.zip}
               />
-            </div>
+            </FormField>
           </div>
 
           {/* Source */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-400 mb-2">
-              How did they find you?
-            </label>
+          <FormField label="How did they find you?">
             <select
               value={source}
               onChange={(e) => setSource(e.target.value)}
-              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 min-h-[44px]"
+              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 focus-visible:ring-2 focus-visible:ring-orange-500/30 min-h-[44px]"
             >
               {sourceOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
               ))}
             </select>
-          </div>
+          </FormField>
 
           {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-5 py-3 bg-navy-800 text-white rounded-lg font-semibold hover:bg-navy-700 transition-colors min-h-[44px]"
+              className="flex-1 px-5 py-3 bg-navy-800 text-white rounded-lg font-semibold hover:bg-navy-700 transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={!firstName.trim() || !phone.trim() || createMutation.isPending}
-              className="flex-1 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center justify-center gap-2"
+              className="flex-1 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center justify-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
             >
               {createMutation.isPending ? (
                 <>
@@ -289,7 +333,7 @@ function CustomerCard({ customer }: { customer: Customer }) {
   return (
     <Link
       href={`/dashboard/customers/${customer.id}`}
-      className="block bg-surface rounded-lg p-4 hover:bg-surface-light transition-colors min-h-[44px]"
+      className="block bg-surface rounded-lg p-4 hover:bg-surface-light transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
     >
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-3">
@@ -354,6 +398,8 @@ export default function CustomersPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['customers', search, page],
     queryFn: () => api.getCustomers({ search: search || undefined, page }),
+    // Cache for 30 seconds - customer list doesn't change frequently
+    staleTime: 30 * 1000,
   });
 
   const customers: Customer[] = data?.data || [];
@@ -374,7 +420,7 @@ export default function CustomersPage() {
 
         <button
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-colors min-h-[44px]"
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
         >
           <Plus className="w-5 h-5" />
           Add Customer
@@ -392,7 +438,7 @@ export default function CustomersPage() {
             setSearch(e.target.value);
             setPage(1);
           }}
-          className="w-full pl-12 pr-4 py-3 bg-surface border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[48px]"
+          className="w-full pl-12 pr-4 py-3 bg-surface border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 focus-visible:ring-2 focus-visible:ring-orange-500/30 min-h-[48px]"
         />
       </div>
 
@@ -423,7 +469,7 @@ export default function CustomersPage() {
           {!search && (
             <button
               onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px]"
+              className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
             >
               <Plus className="w-4 h-4" />
               Add First Customer
@@ -448,14 +494,14 @@ export default function CustomersPage() {
                 <button
                   onClick={() => setPage(page - 1)}
                   disabled={page === 1}
-                  className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setPage(page + 1)}
                   disabled={page >= meta.totalPages}
-                  className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
                 >
                   Next
                 </button>
