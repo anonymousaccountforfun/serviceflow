@@ -1,16 +1,5 @@
 {
-  "version": 2,
-  "installCommand": "pnpm install && pnpm --filter @serviceflow/api build",
-  "builds": [
-    {
-      "src": "apps/api/dist/index.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "apps/api/dist/index.js"
-    }
-  ]
+  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter @serviceflow/web build",
+  "outputDirectory": "apps/web/.next"
 }
