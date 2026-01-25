@@ -22,7 +22,7 @@ import { prisma } from '@serviceflow/database';
 export async function findOrCreateConversation(
   organizationId: string,
   customerId: string,
-  channel: 'sms' | 'voice' | 'email' = 'sms',
+  channel: 'sms' | 'phone' | 'email' | 'web_form' = 'sms',
   aiHandled: boolean = true
 ): Promise<{ id: string; isNew: boolean }> {
   // Use a transaction to ensure atomicity

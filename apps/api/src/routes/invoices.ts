@@ -295,7 +295,7 @@ router.delete('/:id', async (req, res) => {
 
     await prisma.invoice.update({
       where: { id },
-      data: { status: 'void' },
+      data: { status: 'canceled' },
     });
 
     res.json({ success: true, data: { voided: true } });

@@ -192,7 +192,6 @@ router.get('/dashboard', async (req, res) => {
               firstName: true,
               lastName: true,
               address: true,
-              city: true,
             },
           },
         },

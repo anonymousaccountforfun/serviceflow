@@ -170,7 +170,7 @@ class GoogleBusinessProfileService {
     }
 
     // Check if already marked as requiring re-auth
-    if (credential.syncStatus === 'reauth_required') {
+    if (credential.syncStatus === 'error') {
       throw new GoogleAuthError(
         'Google authorization has been revoked. Please reconnect your Google account.',
         'REAUTH_REQUIRED'
@@ -205,7 +205,7 @@ class GoogleBusinessProfileService {
           await prisma.googleCredential.update({
             where: { organizationId },
             data: {
-              syncStatus: 'reauth_required',
+              syncStatus: 'error',
               syncError: error.message,
             },
           });
@@ -514,7 +514,7 @@ class GoogleBusinessProfileService {
 
     return {
       connected: true,
-      requiresReauth: credential.syncStatus === 'reauth_required',
+      requiresReauth: credential.syncStatus === 'error',
       locationName: credential.locationName || undefined,
       lastSyncAt: credential.lastSyncAt || undefined,
       syncStatus: credential.syncStatus,

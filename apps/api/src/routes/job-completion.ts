@@ -9,7 +9,7 @@
  */
 
 import { Router, Request, Response } from 'express';
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { z } from 'zod';
 import { randomUUID } from 'crypto';
 import { promises as fs } from 'fs';
@@ -270,8 +270,8 @@ router.post('/:id/completion', async (req: Request, res: Response) => {
     photosData.completionState = data;
 
     // Update job
-    const updateData: Record<string, unknown> = {
-      photos: photosData,
+    const updateData: Prisma.JobUpdateInput = {
+      photos: photosData as unknown as Prisma.InputJsonValue,
     };
 
     if (job.status !== 'in_progress') {
@@ -359,7 +359,7 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
         completedAt: new Date(),
         notes: data.workSummary.notes || job.notes,
         actualValue: partsTotal || job.actualValue,
-        photos: photosData,
+        photos: photosData as unknown as Prisma.InputJsonValue,
       },
       include: {
         customer: true,
@@ -497,7 +497,7 @@ router.post('/:id/photos', async (req: Request, res: Response) => {
 
     await prisma.job.update({
       where: { id },
-      data: { photos: photosData },
+      data: { photos: photosData as unknown as Prisma.InputJsonValue },
     });
 
     logger.info('Photo uploaded', { jobId: id, photoId: newPhoto.id, type: photoType });
@@ -549,7 +549,7 @@ router.delete('/:id/photos/:photoId', async (req: Request, res: Response) => {
 
     await prisma.job.update({
       where: { id },
-      data: { photos: photosData },
+      data: { photos: photosData as unknown as Prisma.InputJsonValue },
     });
 
     logger.info('Photo deleted', { jobId: id, photoId });
