@@ -7,10 +7,10 @@ import {
   Send,
   Phone,
   User,
-  Clock,
   CheckCircle,
-  Circle,
-  Archive
+  Archive,
+  ArrowLeft,
+  Loader2
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
 import { api } from '../../../lib/api';
@@ -31,7 +31,7 @@ function ConversationList({
       <div className="space-y-2 p-4">
         {[...Array(5)].map((_, i) => (
           <div key={i} className="animate-pulse">
-            <div className="h-16 bg-gray-100 rounded-lg" />
+            <div className="h-20 bg-navy-800 rounded-lg" />
           </div>
         ))}
       </div>
@@ -48,7 +48,7 @@ function ConversationList({
   }
 
   return (
-    <div className="divide-y divide-gray-100">
+    <div className="divide-y divide-white/5">
       {conversations.map((conv) => {
         const lastMessage = conv.messages?.[0];
         const isSelected = conv.id === selectedId;
@@ -57,37 +57,39 @@ function ConversationList({
           <button
             key={conv.id}
             onClick={() => onSelect(conv.id)}
-            className={`w-full p-4 text-left hover:bg-gray-50 transition-colors ${
-              isSelected ? 'bg-brand-50 border-l-2 border-brand-600' : ''
+            className={`w-full p-4 text-left hover:bg-surface-light transition-colors min-h-[80px] ${
+              isSelected ? 'bg-surface-light border-l-2 border-orange-500' : ''
             }`}
           >
             <div className="flex items-start gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-                <User className="w-5 h-5 text-gray-500" />
+              <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0">
+                <span className="text-sm font-semibold text-orange-500">
+                  {conv.customer?.firstName?.[0]}{conv.customer?.lastName?.[0]}
+                </span>
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center justify-between">
-                  <p className="font-medium text-gray-900 truncate">
+                  <p className="font-semibold text-white truncate">
                     {conv.customer?.firstName} {conv.customer?.lastName}
                   </p>
                   <span className="text-xs text-gray-500">
                     {conv.lastMessageAt && formatDistanceToNow(new Date(conv.lastMessageAt), { addSuffix: true })}
                   </span>
                 </div>
-                <p className="text-sm text-gray-500 truncate mt-0.5">
+                <p className="text-sm text-gray-400 truncate mt-0.5">
                   {lastMessage?.content || 'No messages'}
                 </p>
-                <div className="flex items-center gap-2 mt-1">
-                  <span className={`text-xs px-2 py-0.5 rounded-full ${
-                    conv.status === 'open' ? 'bg-green-100 text-green-700' :
-                    conv.status === 'pending' ? 'bg-yellow-100 text-yellow-700' :
-                    conv.status === 'resolved' ? 'bg-gray-100 text-gray-600' :
-                    'bg-gray-100 text-gray-600'
+                <div className="flex items-center gap-2 mt-1.5">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    conv.status === 'open' ? 'bg-green-500/20 text-green-400' :
+                    conv.status === 'pending' ? 'bg-yellow-500/20 text-yellow-400' :
+                    conv.status === 'resolved' ? 'bg-gray-500/20 text-gray-400' :
+                    'bg-gray-500/20 text-gray-400'
                   }`}>
                     {conv.status}
                   </span>
                   {conv.channel === 'sms' && (
-                    <span className="text-xs text-gray-400">SMS</span>
+                    <span className="text-xs text-gray-500">SMS</span>
                   )}
                 </div>
               </div>
@@ -102,9 +104,13 @@ function ConversationList({
 function MessageThread({
   conversationId,
   onStatusChange,
+  onBack,
+  showBackButton,
 }: {
   conversationId: string;
   onStatusChange: (status: string) => void;
+  onBack: () => void;
+  showBackButton: boolean;
 }) {
   const [newMessage, setNewMessage] = useState('');
   const queryClient = useQueryClient();
@@ -136,15 +142,15 @@ function MessageThread({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-600" />
+      <div className="flex items-center justify-center h-full bg-navy-900">
+        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
       </div>
     );
   }
 
   if (!conversation) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500">
+      <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-navy-900">
         <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
         <p className="text-lg">Select a conversation</p>
       </div>
@@ -152,88 +158,114 @@ function MessageThread({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full bg-navy-900">
       {/* Header */}
-      <div className="p-4 border-b border-gray-200 bg-white">
-        <div className="flex items-center justify-between">
+      <div className="p-4 border-b border-white/10 bg-surface">
+        <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
-              <User className="w-5 h-5 text-gray-500" />
+            {showBackButton && (
+              <button
+                onClick={onBack}
+                className="p-2 hover:bg-navy-800 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+              >
+                <ArrowLeft className="w-5 h-5 text-gray-400" />
+              </button>
+            )}
+            <div className="w-10 h-10 rounded-full bg-orange-500/20 flex items-center justify-center">
+              <span className="text-sm font-semibold text-orange-500">
+                {conversation.customer?.firstName?.[0]}{conversation.customer?.lastName?.[0]}
+              </span>
             </div>
             <div>
-              <p className="font-medium text-gray-900">
+              <p className="font-semibold text-white">
                 {conversation.customer?.firstName} {conversation.customer?.lastName}
               </p>
-              <p className="text-sm text-gray-500 flex items-center gap-1">
-                <Phone className="w-3 h-3" />
-                {conversation.customer?.phone}
-              </p>
+              {conversation.customer?.phone && (
+                <a
+                  href={`tel:${conversation.customer.phone}`}
+                  className="text-sm text-orange-500 flex items-center gap-1 hover:text-orange-400"
+                >
+                  <Phone className="w-3 h-3" />
+                  {conversation.customer.phone}
+                </a>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={() => onStatusChange('resolved')}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100"
+              className="flex items-center gap-1 px-3 py-2 text-sm font-semibold text-green-400 bg-green-500/20 rounded-lg hover:bg-green-500/30 transition-colors min-h-[44px]"
             >
               <CheckCircle className="w-4 h-4" />
-              Resolve
+              <span className="hidden sm:inline">Resolve</span>
             </button>
             <button
               onClick={() => onStatusChange('archived')}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+              className="flex items-center gap-1 px-3 py-2 text-sm font-semibold text-gray-400 bg-navy-800 rounded-lg hover:bg-navy-700 transition-colors min-h-[44px]"
             >
               <Archive className="w-4 h-4" />
-              Archive
+              <span className="hidden sm:inline">Archive</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50">
-        {messages.map((msg: any) => {
-          const isOutbound = msg.direction === 'outbound';
-          return (
-            <div
-              key={msg.id}
-              className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}
-            >
+      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        {messages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-gray-500">
+            <MessageSquare className="w-12 h-12 mb-2 opacity-50" />
+            <p>No messages yet</p>
+          </div>
+        ) : (
+          messages.map((msg: any) => {
+            const isOutbound = msg.direction === 'outbound';
+            return (
               <div
-                className={`max-w-[70%] rounded-2xl px-4 py-2 ${
-                  isOutbound
-                    ? 'bg-brand-600 text-white rounded-br-md'
-                    : 'bg-white border border-gray-200 rounded-bl-md'
-                }`}
+                key={msg.id}
+                className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}
               >
-                <p className="text-sm">{msg.content}</p>
-                <p className={`text-xs mt-1 ${isOutbound ? 'text-brand-200' : 'text-gray-400'}`}>
-                  {format(new Date(msg.createdAt), 'h:mm a')}
-                  {msg.senderType && (
-                    <span className="ml-2 capitalize">({msg.senderType})</span>
-                  )}
-                </p>
+                <div
+                  className={`max-w-[80%] sm:max-w-[70%] rounded-2xl px-4 py-3 ${
+                    isOutbound
+                      ? 'bg-orange-500 text-white rounded-br-md'
+                      : 'bg-surface text-white rounded-bl-md'
+                  }`}
+                >
+                  <p className="text-sm">{msg.content}</p>
+                  <p className={`text-xs mt-1.5 ${isOutbound ? 'text-orange-200' : 'text-gray-500'}`}>
+                    {format(new Date(msg.createdAt), 'h:mm a')}
+                    {msg.senderType && (
+                      <span className="ml-2 capitalize">({msg.senderType})</span>
+                    )}
+                  </p>
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })
+        )}
       </div>
 
       {/* Input */}
-      <form onSubmit={handleSend} className="p-4 border-t border-gray-200 bg-white">
-        <div className="flex items-center gap-2">
+      <form onSubmit={handleSend} className="p-4 border-t border-white/10 bg-surface">
+        <div className="flex items-center gap-3">
           <input
             type="text"
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             placeholder="Type a message..."
-            className="flex-1 px-4 py-2 border border-gray-300 rounded-full focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
+            className="flex-1 px-4 py-3 bg-navy-800 border border-white/10 text-white placeholder-gray-500 rounded-full focus:outline-none focus:border-orange-500 min-h-[48px]"
           />
           <button
             type="submit"
             disabled={!newMessage.trim() || sendMutation.isPending}
-            className="p-2 bg-brand-600 text-white rounded-full hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="p-3 bg-orange-500 text-white rounded-full hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[48px] min-w-[48px] flex items-center justify-center"
           >
-            <Send className="w-5 h-5" />
+            {sendMutation.isPending ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Send className="w-5 h-5" />
+            )}
           </button>
         </div>
       </form>
@@ -244,6 +276,7 @@ function MessageThread({
 export default function InboxPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('');
+  const [mobileShowThread, setMobileShowThread] = useState(false);
   const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
@@ -268,59 +301,94 @@ export default function InboxPage() {
     }
   };
 
+  const handleSelectConversation = (id: string) => {
+    setSelectedId(id);
+    setMobileShowThread(true);
+  };
+
+  const handleBack = () => {
+    setMobileShowThread(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inbox</h1>
+          <h1 className="text-2xl font-bold text-white">Inbox</h1>
           <p className="text-gray-500 mt-1">Manage customer conversations</p>
         </div>
 
         {/* Filter */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 sm:pb-0">
           {['', 'open', 'pending', 'resolved'].map((status) => (
             <button
               key={status}
               onClick={() => setStatusFilter(status)}
-              className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors ${
+              className={`px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap min-h-[44px] ${
                 statusFilter === status
-                  ? 'bg-brand-600 text-white'
-                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-orange-500 text-white'
+                  : 'bg-surface text-gray-400 hover:bg-surface-light hover:text-white'
               }`}
             >
-              {status || 'All'}
+              {status ? status.charAt(0).toUpperCase() + status.slice(1) : 'All'}
             </button>
           ))}
         </div>
       </div>
 
       {/* Conversation list and thread */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-3 h-[calc(100vh-250px)] min-h-[500px]">
-          {/* Conversation list */}
-          <div className="border-r border-gray-200 overflow-y-auto">
-            <ConversationList
-              conversations={conversations}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-              isLoading={isLoading}
-            />
-          </div>
-
-          {/* Message thread */}
-          <div className="col-span-2 hidden lg:block">
-            {selectedId ? (
+      <div className="bg-surface rounded-xl border border-white/10 overflow-hidden">
+        <div className="h-[calc(100vh-220px)] min-h-[500px]">
+          {/* Mobile View */}
+          <div className="lg:hidden h-full">
+            {mobileShowThread && selectedId ? (
               <MessageThread
                 conversationId={selectedId}
                 onStatusChange={handleStatusChange}
+                onBack={handleBack}
+                showBackButton={true}
               />
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-gray-500">
-                <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
-                <p className="text-lg">Select a conversation to view</p>
+              <div className="h-full overflow-y-auto">
+                <ConversationList
+                  conversations={conversations}
+                  selectedId={selectedId}
+                  onSelect={handleSelectConversation}
+                  isLoading={isLoading}
+                />
               </div>
             )}
+          </div>
+
+          {/* Desktop View */}
+          <div className="hidden lg:grid lg:grid-cols-3 h-full">
+            {/* Conversation list */}
+            <div className="border-r border-white/10 overflow-y-auto">
+              <ConversationList
+                conversations={conversations}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+                isLoading={isLoading}
+              />
+            </div>
+
+            {/* Message thread */}
+            <div className="col-span-2">
+              {selectedId ? (
+                <MessageThread
+                  conversationId={selectedId}
+                  onStatusChange={handleStatusChange}
+                  onBack={handleBack}
+                  showBackButton={false}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-navy-900">
+                  <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
+                  <p className="text-lg">Select a conversation to view</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>

@@ -169,6 +169,10 @@ class ApiClient {
     return this.request<any[]>('GET', `/api/reviews?${searchParams}`);
   }
 
+  async replyToReview(reviewId: string, response: string) {
+    return this.request<any>('POST', `/api/reviews/${reviewId}/reply`, { response });
+  }
+
   // Google
   async getGoogleStatus() {
     return this.request<any>('GET', '/api/google/status');

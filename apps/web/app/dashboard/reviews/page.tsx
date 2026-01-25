@@ -8,9 +8,12 @@ import {
   MessageSquare,
   RefreshCw,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  Loader2,
+  Send
 } from 'lucide-react';
 import { format } from 'date-fns';
+import Link from 'next/link';
 import { api } from '../../../lib/api';
 
 function StarRating({ rating }: { rating: number }) {
@@ -20,7 +23,7 @@ function StarRating({ rating }: { rating: number }) {
         <Star
           key={star}
           className={`w-4 h-4 ${
-            star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
+            star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-gray-600'
           }`}
         />
       ))}
@@ -31,29 +34,45 @@ function StarRating({ rating }: { rating: number }) {
 function ReviewCard({ review }: { review: any }) {
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [replyText, setReplyText] = useState('');
+  const queryClient = useQueryClient();
+
+  const replyMutation = useMutation({
+    mutationFn: (response: string) => api.replyToReview(review.id, response),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['reviews'] });
+      setShowReplyForm(false);
+      setReplyText('');
+    },
+  });
 
   const platformColors: Record<string, { bg: string; text: string }> = {
-    google: { bg: 'bg-blue-100', text: 'text-blue-700' },
-    yelp: { bg: 'bg-red-100', text: 'text-red-700' },
-    facebook: { bg: 'bg-indigo-100', text: 'text-indigo-700' },
-    internal: { bg: 'bg-gray-100', text: 'text-gray-700' },
+    google: { bg: 'bg-blue-500/20', text: 'text-blue-400' },
+    yelp: { bg: 'bg-red-500/20', text: 'text-red-400' },
+    facebook: { bg: 'bg-indigo-500/20', text: 'text-indigo-400' },
+    internal: { bg: 'bg-gray-500/20', text: 'text-gray-400' },
   };
 
   const platform = platformColors[review.platform] || platformColors.internal;
 
+  const handleSubmitReply = () => {
+    if (replyText.trim()) {
+      replyMutation.mutate(replyText.trim());
+    }
+  };
+
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-6">
+    <div className="bg-surface rounded-lg p-6">
       <div className="flex items-start justify-between">
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0">
-            <span className="text-lg font-semibold text-gray-600">
+          <div className="w-12 h-12 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0">
+            <span className="text-lg font-semibold text-orange-500">
               {review.reviewerName?.[0] || '?'}
             </span>
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <p className="font-semibold text-gray-900">{review.reviewerName || 'Anonymous'}</p>
-              <span className={`px-2 py-0.5 text-xs font-medium rounded ${platform.bg} ${platform.text}`}>
+              <p className="font-semibold text-white">{review.reviewerName || 'Anonymous'}</p>
+              <span className={`px-2 py-0.5 text-xs font-semibold uppercase rounded ${platform.bg} ${platform.text}`}>
                 {review.platform}
               </span>
             </div>
@@ -68,14 +87,14 @@ function ReviewCard({ review }: { review: any }) {
       </div>
 
       {review.content && (
-        <p className="mt-4 text-gray-700">{review.content}</p>
+        <p className="mt-4 text-gray-300">{review.content}</p>
       )}
 
       {/* Response */}
       {review.response && (
-        <div className="mt-4 p-4 bg-gray-50 rounded-lg border-l-4 border-brand-500">
-          <p className="text-sm font-medium text-gray-900 mb-1">Your Response</p>
-          <p className="text-sm text-gray-700">{review.response}</p>
+        <div className="mt-4 p-4 bg-navy-800 rounded-lg border-l-4 border-orange-500">
+          <p className="text-sm font-semibold text-white mb-1">Your Response</p>
+          <p className="text-sm text-gray-300">{review.response}</p>
           {review.respondedAt && (
             <p className="text-xs text-gray-500 mt-2">
               Responded {format(new Date(review.respondedAt), 'MMM d, yyyy')}
@@ -93,26 +112,33 @@ function ReviewCard({ review }: { review: any }) {
                 value={replyText}
                 onChange={(e) => setReplyText(e.target.value)}
                 placeholder="Write your response..."
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-brand-500 resize-none"
+                className="w-full p-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 resize-none min-h-[100px]"
                 rows={3}
               />
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    // TODO: Implement reply mutation
-                    setShowReplyForm(false);
-                    setReplyText('');
-                  }}
-                  className="px-4 py-2 bg-brand-600 text-white rounded-lg hover:bg-brand-700 text-sm font-medium"
+                  onClick={handleSubmitReply}
+                  disabled={!replyText.trim() || replyMutation.isPending}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                 >
-                  Send Response
+                  {replyMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    <>
+                      <Send className="w-4 h-4" />
+                      Send Response
+                    </>
+                  )}
                 </button>
                 <button
                   onClick={() => {
                     setShowReplyForm(false);
                     setReplyText('');
                   }}
-                  className="px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg text-sm font-medium"
+                  className="px-4 py-2.5 text-gray-400 hover:bg-navy-800 rounded-lg font-semibold transition-colors min-h-[44px]"
                 >
                   Cancel
                 </button>
@@ -121,7 +147,7 @@ function ReviewCard({ review }: { review: any }) {
           ) : (
             <button
               onClick={() => setShowReplyForm(true)}
-              className="flex items-center gap-2 text-sm text-brand-600 hover:text-brand-700 font-medium"
+              className="flex items-center gap-2 text-sm text-orange-500 hover:text-orange-400 font-semibold min-h-[44px]"
             >
               <MessageSquare className="w-4 h-4" />
               Write a response
@@ -151,8 +177,8 @@ function GoogleConnectionStatus() {
 
   if (isLoading) {
     return (
-      <div className="bg-white rounded-xl border border-gray-200 p-4 animate-pulse">
-        <div className="h-6 bg-gray-200 rounded w-48" />
+      <div className="bg-surface rounded-lg p-4 animate-pulse">
+        <div className="h-6 bg-navy-700 rounded w-48" />
       </div>
     );
   }
@@ -160,18 +186,18 @@ function GoogleConnectionStatus() {
   const connected = status?.data?.connected;
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <div className="bg-surface rounded-lg p-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${connected ? 'bg-green-100' : 'bg-gray-100'}`}>
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${connected ? 'bg-green-500/20' : 'bg-gray-500/20'}`}>
             {connected ? (
-              <CheckCircle className="w-5 h-5 text-green-600" />
+              <CheckCircle className="w-5 h-5 text-green-500" />
             ) : (
-              <AlertCircle className="w-5 h-5 text-gray-400" />
+              <AlertCircle className="w-5 h-5 text-gray-500" />
             )}
           </div>
           <div>
-            <p className="font-medium text-gray-900">Google Business Profile</p>
+            <p className="font-semibold text-white">Google Business Profile</p>
             <p className="text-sm text-gray-500">
               {connected
                 ? `Connected to ${status?.data?.locationName || 'your business'}`
@@ -184,24 +210,24 @@ function GoogleConnectionStatus() {
           <button
             onClick={() => syncMutation.mutate()}
             disabled={syncMutation.isPending}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-brand-600 bg-brand-50 rounded-lg hover:bg-brand-100 disabled:opacity-50"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-orange-500 bg-orange-500/20 rounded-lg hover:bg-orange-500/30 disabled:opacity-50 transition-colors min-h-[44px]"
           >
             <RefreshCw className={`w-4 h-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
             {syncMutation.isPending ? 'Syncing...' : 'Sync Reviews'}
           </button>
         ) : (
-          <a
+          <Link
             href="/dashboard/settings/integrations"
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-brand-600 rounded-lg hover:bg-brand-700"
+            className="flex items-center gap-2 px-4 py-2.5 text-sm font-semibold text-white bg-orange-500 rounded-lg hover:bg-orange-600 transition-colors min-h-[44px]"
           >
             <ExternalLink className="w-4 h-4" />
             Connect
-          </a>
+          </Link>
         )}
       </div>
 
       {status?.data?.lastSyncAt && (
-        <p className="text-xs text-gray-500 mt-3 pt-3 border-t border-gray-100">
+        <p className="text-xs text-gray-500 mt-3 pt-3 border-t border-white/10">
           Last synced: {format(new Date(status.data.lastSyncAt), 'MMM d, yyyy h:mm a')}
         </p>
       )}
@@ -226,20 +252,26 @@ export default function ReviewsPage() {
     ? (reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / reviews.length).toFixed(1)
     : '0.0';
 
-  const platforms = ['', 'google', 'yelp', 'facebook', 'internal'];
+  const platforms = [
+    { value: '', label: 'All' },
+    { value: 'google', label: 'Google' },
+    { value: 'yelp', label: 'Yelp' },
+    { value: 'facebook', label: 'Facebook' },
+    { value: 'internal', label: 'Internal' },
+  ];
 
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Reviews</h1>
+          <h1 className="text-2xl font-bold text-white">Reviews</h1>
           <p className="text-gray-500 mt-1">Monitor and respond to customer reviews</p>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="text-right">
-            <p className="text-3xl font-bold text-gray-900">{avgRating}</p>
+            <p className="text-4xl font-bold text-white">{avgRating}</p>
             <div className="flex items-center gap-1 justify-end">
               <StarRating rating={Math.round(parseFloat(avgRating))} />
               <span className="text-sm text-gray-500">({reviews.length})</span>
@@ -252,21 +284,21 @@ export default function ReviewsPage() {
       <GoogleConnectionStatus />
 
       {/* Filters */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 overflow-x-auto pb-2">
         {platforms.map((platform) => (
           <button
-            key={platform}
+            key={platform.value}
             onClick={() => {
-              setPlatformFilter(platform);
+              setPlatformFilter(platform.value);
               setPage(1);
             }}
-            className={`px-3 py-1.5 text-sm font-medium rounded-lg transition-colors capitalize ${
-              platformFilter === platform
-                ? 'bg-brand-600 text-white'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+            className={`px-4 py-2.5 text-sm font-semibold rounded-lg transition-colors whitespace-nowrap min-h-[44px] ${
+              platformFilter === platform.value
+                ? 'bg-orange-500 text-white'
+                : 'bg-surface text-gray-400 hover:bg-surface-light hover:text-white'
             }`}
           >
-            {platform || 'All'}
+            {platform.label}
           </button>
         ))}
       </div>
@@ -275,23 +307,25 @@ export default function ReviewsPage() {
       {isLoading ? (
         <div className="space-y-4">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="bg-white rounded-xl border border-gray-200 p-6 animate-pulse">
+            <div key={i} className="bg-surface rounded-lg p-6 animate-pulse">
               <div className="flex items-start gap-4">
-                <div className="w-12 h-12 rounded-full bg-gray-200" />
+                <div className="w-12 h-12 rounded-full bg-navy-700" />
                 <div className="flex-1">
-                  <div className="h-5 bg-gray-200 rounded w-32 mb-2" />
-                  <div className="h-4 bg-gray-200 rounded w-24" />
+                  <div className="h-5 bg-navy-700 rounded w-32 mb-2" />
+                  <div className="h-4 bg-navy-700 rounded w-24" />
                 </div>
               </div>
-              <div className="h-16 bg-gray-200 rounded mt-4" />
+              <div className="h-16 bg-navy-700 rounded mt-4" />
             </div>
           ))}
         </div>
       ) : reviews.length === 0 ? (
-        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
-          <Star className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900">No reviews yet</h3>
-          <p className="text-gray-500 mt-1">
+        <div className="bg-surface rounded-lg p-12 text-center">
+          <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mx-auto mb-4">
+            <Star className="w-8 h-8 text-gray-500" />
+          </div>
+          <h3 className="text-lg font-semibold text-white mb-2">No reviews yet</h3>
+          <p className="text-gray-500">
             Connect your Google Business Profile to sync reviews
           </p>
         </div>
@@ -305,7 +339,7 @@ export default function ReviewsPage() {
 
           {/* Pagination */}
           {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between pt-4">
               <p className="text-sm text-gray-500">
                 Showing {(page - 1) * meta.perPage + 1} to {Math.min(page * meta.perPage, meta.total)} of {meta.total}
               </p>
@@ -313,14 +347,14 @@ export default function ReviewsPage() {
                 <button
                   onClick={() => setPage(page - 1)}
                   disabled={page === 1}
-                  className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setPage(page + 1)}
                   disabled={page >= meta.totalPages}
-                  className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                  className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                 >
                   Next
                 </button>

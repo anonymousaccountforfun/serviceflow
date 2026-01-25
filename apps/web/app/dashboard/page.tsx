@@ -15,9 +15,13 @@ import {
   Briefcase,
   MessageSquare,
   CheckCircle2,
-  Users
+  Users,
+  Clock,
+  MapPin,
+  ExternalLink
 } from 'lucide-react';
 import Link from 'next/link';
+import { format } from 'date-fns';
 import { api } from '../../lib/api';
 
 // Large metric display component
@@ -234,6 +238,115 @@ function EmptyState({
   );
 }
 
+// Today's Schedule widget
+function TodaySchedule() {
+  const today = format(new Date(), 'yyyy-MM-dd');
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['calendar', 'day', today],
+    queryFn: () => api.getCalendarDay(today),
+  });
+
+  const appointments = data?.data?.appointments || [];
+
+  if (isLoading) {
+    return (
+      <div className="bg-surface rounded-lg p-5 lg:p-6">
+        <div className="flex items-center justify-between mb-4">
+          <span className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+            Today's Schedule
+          </span>
+          <Clock className="w-5 h-5 text-gray-500" />
+        </div>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="h-16 bg-navy-700 rounded-lg animate-pulse" />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-surface rounded-lg p-5 lg:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <span className="text-sm font-semibold text-gray-400 uppercase tracking-wide">
+          Today's Schedule
+        </span>
+        <Link href="/dashboard/calendar" className="text-sm text-orange-500 hover:text-orange-400 font-medium">
+          View All
+        </Link>
+      </div>
+
+      {appointments.length === 0 ? (
+        <div className="text-center py-6">
+          <Clock className="w-10 h-10 text-gray-600 mx-auto mb-2" />
+          <p className="text-gray-500">No appointments today</p>
+          <Link
+            href="/dashboard/calendar"
+            className="inline-block mt-3 text-sm text-orange-500 hover:text-orange-400 font-medium"
+          >
+            View calendar
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {appointments.slice(0, 4).map((apt: any) => {
+            const address = apt.customer?.address
+              ? `${apt.customer.address}, ${apt.customer.city || ''}`
+              : '';
+            const mapsUrl = address
+              ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`
+              : '';
+
+            return (
+              <Link
+                key={apt.id}
+                href={`/dashboard/jobs/${apt.job?.id}`}
+                className="flex items-start gap-3 p-3 bg-navy-800 rounded-lg hover:bg-navy-700 transition-colors min-h-[72px]"
+              >
+                <div className="w-12 text-center flex-shrink-0">
+                  <p className="text-lg font-bold text-white">
+                    {format(new Date(apt.scheduledAt), 'h:mm')}
+                  </p>
+                  <p className="text-xs text-gray-500 uppercase">
+                    {format(new Date(apt.scheduledAt), 'a')}
+                  </p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-white truncate">{apt.job?.title}</p>
+                  <p className="text-sm text-gray-400 truncate">
+                    {apt.customer?.firstName} {apt.customer?.lastName}
+                  </p>
+                  {address && (
+                    <a
+                      href={mapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-1"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      <span className="truncate">{apt.customer?.city || 'Get directions'}</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
+                <ArrowRight className="w-4 h-4 text-gray-600 flex-shrink-0 mt-1" />
+              </Link>
+            );
+          })}
+          {appointments.length > 4 && (
+            <p className="text-center text-sm text-gray-500">
+              + {appointments.length - 4} more appointments
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // Quick action buttons
 function QuickActions() {
   return (
@@ -327,6 +440,9 @@ export default function DashboardPage() {
           variant="success"
         />
       </div>
+
+      {/* Today's Schedule */}
+      <TodaySchedule />
 
       {/* Secondary Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

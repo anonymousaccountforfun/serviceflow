@@ -1,6 +1,6 @@
 'use client';
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   Briefcase,
@@ -11,7 +11,10 @@ import {
   Calendar,
   AlertTriangle,
   ChevronRight,
-  Filter
+  Filter,
+  X,
+  Search,
+  Loader2
 } from 'lucide-react';
 import { format } from 'date-fns';
 import Link from 'next/link';
@@ -33,6 +36,288 @@ const priorityConfig: Record<string, { bg: string; text: string; border: string 
   high: { bg: 'bg-orange-500/10', text: 'text-orange-400', border: 'border-orange-500/30' },
   emergency: { bg: 'bg-red-500/10', text: 'text-red-400', border: 'border-red-500/30' },
 };
+
+const jobTypes = [
+  { value: 'repair', label: 'Repair' },
+  { value: 'installation', label: 'Installation' },
+  { value: 'maintenance', label: 'Maintenance' },
+  { value: 'inspection', label: 'Inspection' },
+  { value: 'emergency', label: 'Emergency' },
+  { value: 'estimate', label: 'Estimate' },
+  { value: 'other', label: 'Other' },
+];
+
+const priorities = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+  { value: 'emergency', label: 'Emergency' },
+];
+
+function CreateJobModal({
+  isOpen,
+  onClose,
+  onSuccess,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [description, setDescription] = useState('');
+  const [type, setType] = useState('repair');
+  const [priority, setPriority] = useState('normal');
+  const [customerId, setCustomerId] = useState('');
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [scheduledAt, setScheduledAt] = useState('');
+  const [estimatedValue, setEstimatedValue] = useState('');
+  const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+
+  const { data: customersData } = useQuery({
+    queryKey: ['customers', 'search', customerSearch],
+    queryFn: () => api.getCustomers({ search: customerSearch }),
+    enabled: customerSearch.length > 0,
+  });
+
+  const customers = customersData?.data || [];
+
+  const createMutation = useMutation({
+    mutationFn: (data: any) => api.createJob(data),
+    onSuccess: () => {
+      onSuccess();
+      resetForm();
+      onClose();
+    },
+  });
+
+  const resetForm = () => {
+    setTitle('');
+    setDescription('');
+    setType('repair');
+    setPriority('normal');
+    setCustomerId('');
+    setCustomerSearch('');
+    setScheduledAt('');
+    setEstimatedValue('');
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim()) return;
+
+    createMutation.mutate({
+      title: title.trim(),
+      description: description.trim(),
+      type,
+      priority,
+      customerId: customerId || undefined,
+      scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+      estimatedValue: estimatedValue ? Math.round(parseFloat(estimatedValue) * 100) : undefined,
+      status: 'lead',
+    });
+  };
+
+  const selectCustomer = (customer: any) => {
+    setCustomerId(customer.id);
+    setCustomerSearch(`${customer.firstName} ${customer.lastName}`);
+    setShowCustomerDropdown(false);
+  };
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/70"
+        onClick={onClose}
+      />
+
+      {/* Modal */}
+      <div className="relative w-full max-w-lg bg-navy-900 rounded-xl shadow-2xl border border-white/10 max-h-[90vh] overflow-y-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between p-5 border-b border-white/10">
+          <h2 className="text-xl font-bold text-white">New Job</h2>
+          <button
+            onClick={onClose}
+            className="p-2 hover:bg-white/10 rounded-lg transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center"
+          >
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} className="p-5 space-y-5">
+          {/* Title */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-400 mb-2">
+              Job Title <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="e.g., Fix leaking faucet"
+              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
+              required
+            />
+          </div>
+
+          {/* Customer Search */}
+          <div className="relative">
+            <label className="block text-sm font-semibold text-gray-400 mb-2">
+              Customer
+            </label>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+              <input
+                type="text"
+                value={customerSearch}
+                onChange={(e) => {
+                  setCustomerSearch(e.target.value);
+                  setShowCustomerDropdown(true);
+                  if (!e.target.value) setCustomerId('');
+                }}
+                onFocus={() => setShowCustomerDropdown(true)}
+                placeholder="Search customers..."
+                className="w-full pl-10 pr-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
+              />
+            </div>
+            {/* Customer Dropdown */}
+            {showCustomerDropdown && customerSearch && customers.length > 0 && (
+              <div className="absolute z-10 w-full mt-1 bg-navy-800 border border-white/10 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                {customers.map((customer: any) => (
+                  <button
+                    key={customer.id}
+                    type="button"
+                    onClick={() => selectCustomer(customer)}
+                    className="w-full px-4 py-3 text-left hover:bg-navy-700 transition-colors flex items-center gap-3 min-h-[44px]"
+                  >
+                    <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0">
+                      <span className="text-sm font-semibold text-orange-500">
+                        {customer.firstName?.[0]}{customer.lastName?.[0]}
+                      </span>
+                    </div>
+                    <div>
+                      <p className="text-white font-medium">{customer.firstName} {customer.lastName}</p>
+                      <p className="text-sm text-gray-500">{customer.phone}</p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Type and Priority Row */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-gray-400 mb-2">
+                Job Type
+              </label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 min-h-[44px]"
+              >
+                {jobTypes.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-semibold text-gray-400 mb-2">
+                Priority
+              </label>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 min-h-[44px]"
+              >
+                {priorities.map((p) => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Scheduled Date */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-400 mb-2">
+              Schedule For (Optional)
+            </label>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
+              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white focus:outline-none focus:border-orange-500 min-h-[44px]"
+            />
+          </div>
+
+          {/* Estimated Value */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-400 mb-2">
+              Estimated Value (Optional)
+            </label>
+            <div className="relative">
+              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+              <input
+                type="number"
+                value={estimatedValue}
+                onChange={(e) => setEstimatedValue(e.target.value)}
+                placeholder="0.00"
+                step="0.01"
+                min="0"
+                className="w-full pl-10 pr-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 min-h-[44px]"
+              />
+            </div>
+          </div>
+
+          {/* Description */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-400 mb-2">
+              Description
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="Describe the job..."
+              rows={3}
+              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:border-orange-500 resize-none"
+            />
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-5 py-3 bg-navy-800 text-white rounded-lg font-semibold hover:bg-navy-700 transition-colors min-h-[44px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={!title.trim() || createMutation.isPending}
+              className="flex-1 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center justify-center gap-2"
+            >
+              {createMutation.isPending ? (
+                <>
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                  Creating...
+                </>
+              ) : (
+                <>
+                  <Plus className="w-5 h-5" />
+                  Create Job
+                </>
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 function JobCard({ job }: { job: any }) {
   const status = statusConfig[job.status] || statusConfig.lead;
@@ -103,7 +388,7 @@ function JobCard({ job }: { job: any }) {
   );
 }
 
-function EmptyState({ hasFilter }: { hasFilter: boolean }) {
+function EmptyState({ hasFilter, onCreateClick }: { hasFilter: boolean; onCreateClick: () => void }) {
   return (
     <div className="bg-surface rounded-lg p-12 text-center">
       <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mx-auto mb-4">
@@ -118,7 +403,10 @@ function EmptyState({ hasFilter }: { hasFilter: boolean }) {
           : 'Create your first job to start tracking your work and revenue.'}
       </p>
       {!hasFilter && (
-        <button className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px]">
+        <button
+          onClick={onCreateClick}
+          className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px]"
+        >
           <Plus className="w-4 h-4" />
           Create First Job
         </button>
@@ -150,6 +438,8 @@ function LoadingSkeleton() {
 export default function JobsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const queryClient = useQueryClient();
 
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', statusFilter, page],
@@ -158,6 +448,10 @@ export default function JobsPage() {
 
   const jobs = data?.data || [];
   const meta = data?.meta;
+
+  const handleJobCreated = () => {
+    queryClient.invalidateQueries({ queryKey: ['jobs'] });
+  };
 
   const statuses = [
     { value: '', label: 'All' },
@@ -178,7 +472,10 @@ export default function JobsPage() {
           <p className="text-gray-500 mt-1">Track and manage your jobs</p>
         </div>
 
-        <button className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-colors min-h-[44px]">
+        <button
+          onClick={() => setShowCreateModal(true)}
+          className="inline-flex items-center justify-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg hover:bg-orange-600 font-semibold transition-colors min-h-[44px]"
+        >
           <Plus className="w-5 h-5" />
           New Job
         </button>
@@ -209,7 +506,7 @@ export default function JobsPage() {
       {isLoading ? (
         <LoadingSkeleton />
       ) : jobs.length === 0 ? (
-        <EmptyState hasFilter={!!statusFilter} />
+        <EmptyState hasFilter={!!statusFilter} onCreateClick={() => setShowCreateModal(true)} />
       ) : (
         <>
           <div className="space-y-3">
@@ -244,6 +541,13 @@ export default function JobsPage() {
           )}
         </>
       )}
+
+      {/* Create Job Modal */}
+      <CreateJobModal
+        isOpen={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSuccess={handleJobCreated}
+      />
     </div>
   );
 }
