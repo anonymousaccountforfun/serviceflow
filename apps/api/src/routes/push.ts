@@ -6,8 +6,8 @@
 
 import { Router } from 'express';
 import { z } from 'zod';
-import { pushNotifications } from '../services/push-notifications';
-import { logger } from '../lib/logger';
+import { pushNotifications, type PushSubscriptionInput } from '../services/push-notifications.js';
+import { logger } from '../lib/logger.js';
 
 const router = Router();
 
@@ -53,7 +53,7 @@ router.post('/subscribe', async (req, res) => {
     const subscription = subscribeSchema.parse(req.body);
     const userAgent = req.headers['user-agent'];
 
-    await pushNotifications.subscribe(userId, subscription, userAgent);
+    await pushNotifications.subscribe(userId, subscription as PushSubscriptionInput, userAgent);
 
     res.status(201).json({
       success: true,

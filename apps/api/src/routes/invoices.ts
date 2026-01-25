@@ -19,6 +19,8 @@ const lineItemSchema = z.object({
   total: z.number().int(), // cents
 });
 
+type InvoiceLineItem = z.infer<typeof lineItemSchema>;
+
 // Create invoice schema
 const createInvoiceSchema = z.object({
   jobId: z.string(),
@@ -40,7 +42,7 @@ const updateInvoiceSchema = z.object({
 /**
  * Calculate totals from line items
  */
-function calculateTotals(lineItems: Array<{ total: number }>, taxRate: number = 0) {
+function calculateTotals(lineItems: InvoiceLineItem[], taxRate: number = 0) {
   const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
   const tax = Math.round(subtotal * (taxRate / 100));
   const total = subtotal + tax;
@@ -159,7 +161,7 @@ router.post('/', async (req, res) => {
       }
     }
 
-    const { subtotal, tax, total } = calculateTotals(data.lineItems, data.taxRate);
+    const { subtotal, tax, total } = calculateTotals(data.lineItems as InvoiceLineItem[], data.taxRate);
 
     const invoice = await prisma.invoice.create({
       data: {
@@ -230,7 +232,7 @@ router.patch('/:id', async (req, res) => {
     }
 
     if (data.lineItems) {
-      const { subtotal, tax, total } = calculateTotals(data.lineItems, data.taxRate);
+      const { subtotal, tax, total } = calculateTotals(data.lineItems as InvoiceLineItem[], data.taxRate);
       updateData.lineItems = data.lineItems;
       updateData.subtotal = subtotal;
       updateData.tax = tax;

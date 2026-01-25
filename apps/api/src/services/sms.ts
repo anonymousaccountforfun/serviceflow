@@ -168,7 +168,7 @@ class SmsService {
           if (isQuietHours(new Date(), quietStart, quietEnd, org.timezone)) {
             console.log(`🌙 SMS queued for quiet hours: ${to}`);
             // Queue for later delivery using the SMS queue service
-            const { smsQueue } = await import('./sms-queue');
+            const { smsQueue } = await import('./sms-queue.js');
             const queuedId = await smsQueue.queue({
               organizationId,
               customerId,

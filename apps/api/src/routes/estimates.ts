@@ -21,6 +21,8 @@ const lineItemSchema = z.object({
   sortOrder: z.number().int().optional(),
 });
 
+type LineItem = z.infer<typeof lineItemSchema>;
+
 // Create estimate schema
 const createEstimateSchema = z.object({
   customerId: z.string(),
@@ -71,7 +73,7 @@ async function generateEstimateNumber(organizationId: string): Promise<string> {
  * Calculate totals from line items
  */
 function calculateTotals(
-  lineItems: Array<{ total: number }>,
+  lineItems: LineItem[],
   taxRate: number = 0
 ) {
   const subtotal = lineItems.reduce((sum, item) => sum + item.total, 0);
@@ -206,7 +208,7 @@ router.post('/', async (req, res) => {
     // Calculate totals
     const taxRate = data.taxRate || 0;
     const { subtotal, taxAmount, total } = calculateTotals(
-      data.lineItems,
+      data.lineItems as LineItem[],
       taxRate
     );
 
@@ -322,7 +324,7 @@ router.patch('/:id', async (req, res) => {
         // Recalculate totals
         const taxRate = data.taxRate ?? estimate.taxRate;
         const { subtotal, taxAmount, total } = calculateTotals(
-          data.lineItems,
+          data.lineItems as LineItem[],
           taxRate
         );
         updateData.subtotal = subtotal;
