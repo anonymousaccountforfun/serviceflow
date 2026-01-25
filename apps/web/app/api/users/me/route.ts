@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { auth, clerkClient } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
 
@@ -157,9 +157,14 @@ export async function DELETE() {
       });
     }
 
-    // TODO: Also delete user from Clerk
-    // const clerk = await clerkClient();
-    // await clerk.users.deleteUser(clerkId);
+    // Also delete user from Clerk
+    try {
+      const clerk = await clerkClient();
+      await clerk.users.deleteUser(clerkId);
+    } catch (clerkError) {
+      // Log but don't fail - the database record is already deleted
+      console.error('Failed to delete user from Clerk:', clerkError);
+    }
 
     return NextResponse.json({ success: true });
   } catch (error) {

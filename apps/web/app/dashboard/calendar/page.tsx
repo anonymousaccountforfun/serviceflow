@@ -55,12 +55,18 @@ function CreateAppointmentModal({
 
   const jobs = jobsData?.data || [];
 
+  const [error, setError] = useState<string | null>(null);
+
   const createMutation = useMutation({
     mutationFn: (data: any) => api.createAppointment(data),
     onSuccess: () => {
+      setError(null);
       onSuccess();
       resetForm();
       onClose();
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to create appointment');
     },
   });
 

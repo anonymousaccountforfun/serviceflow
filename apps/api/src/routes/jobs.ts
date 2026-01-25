@@ -9,7 +9,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const { page, perPage, sortBy, sortOrder } = paginationSchema.parse(req.query);
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const status = req.query.status as string | undefined;
     const customerId = req.query.customerId as string | undefined;
 
@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const job = await prisma.job.findFirst({
       where: { id, organizationId: orgId },
@@ -87,7 +87,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/jobs - Create job
 router.post('/', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const data = createJobSchema.parse(req.body);
 
     // Verify customer belongs to org
@@ -129,7 +129,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const data = updateJobSchema.parse(req.body);
 
     // Build update data with proper date conversions
@@ -189,7 +189,7 @@ router.patch('/:id', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const job = await prisma.job.deleteMany({
       where: { id, organizationId: orgId },

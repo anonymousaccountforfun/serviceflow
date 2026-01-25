@@ -183,11 +183,23 @@ class SmsService {
           const quietEnd = settings?.aiSettings?.quietHoursEnd || TIMING.QUIET_HOURS_END;
 
           if (isQuietHours(new Date(), quietStart, quietEnd, org.timezone)) {
-            console.log(`🌙 SMS delayed - quiet hours: ${to}`);
-            // TODO: Queue for later delivery
+            console.log(`🌙 SMS queued for quiet hours: ${to}`);
+            // Queue for later delivery using the SMS queue service
+            const { smsQueue } = await import('./sms-queue');
+            const queuedId = await smsQueue.queue({
+              organizationId,
+              customerId,
+              conversationId,
+              to,
+              message,
+              templateType,
+              senderType,
+              metadata,
+            });
             return {
-              success: false,
-              error: { code: 'QUIET_HOURS', message: 'Message queued for quiet hours' },
+              success: true, // Successfully queued
+              messageId: queuedId,
+              error: { code: 'QUEUED', message: 'Message queued for delivery after quiet hours' },
             };
           }
         }

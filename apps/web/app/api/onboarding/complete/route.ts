@@ -19,6 +19,7 @@ interface OnboardingData {
     greeting: string;
     voiceEnabled: boolean;
   };
+  timezone?: string;
 }
 
 export async function POST(request: Request) {
@@ -78,11 +79,12 @@ export async function POST(request: Request) {
       },
     };
 
-    // Update organization
+    // Update organization with timezone and settings
     const updatedOrg = await prisma.organization.update({
       where: { id: user.organization.id },
       data: {
         name: data.businessProfile.businessName,
+        timezone: data.timezone || 'America/New_York',
         settings: updatedSettings,
       },
     });

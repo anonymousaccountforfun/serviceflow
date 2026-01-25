@@ -11,7 +11,7 @@ const DEFAULT_DURATION_MINUTES = 120;
 router.get('/', async (req, res) => {
   try {
     const { page, perPage, sortOrder } = paginationSchema.parse(req.query);
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     // Date range filtering
     const startDate = req.query.startDate ? new Date(req.query.startDate as string) : undefined;
@@ -67,7 +67,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const appointment = await prisma.appointment.findFirst({
       where: { id, organizationId: orgId },
@@ -102,7 +102,7 @@ router.get('/:id', async (req, res) => {
 // POST /api/appointments - Create appointment
 router.post('/', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const data = createAppointmentSchema.parse(req.body);
 
     // Verify job belongs to org
@@ -183,7 +183,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { status, assignedToId, notes } = req.body;
 
     const appointment = await prisma.appointment.findFirst({
@@ -258,7 +258,7 @@ router.patch('/:id', async (req, res) => {
 router.post('/:id/reschedule', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const data = rescheduleAppointmentSchema.parse(req.body);
 
     const appointment = await prisma.appointment.findFirst({
@@ -323,7 +323,7 @@ router.post('/:id/reschedule', async (req, res) => {
 router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const appointment = await prisma.appointment.findFirst({
       where: { id, organizationId: orgId },

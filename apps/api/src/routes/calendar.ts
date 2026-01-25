@@ -9,7 +9,7 @@ const DEFAULT_SLOT_DURATION = 120;
 // GET /api/calendar/day/:date - Get appointments for a specific day
 router.get('/day/:date', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { date } = req.params;
     const technicianId = req.query.technicianId as string | undefined;
 
@@ -54,7 +54,7 @@ router.get('/day/:date', async (req, res) => {
 // GET /api/calendar/week/:date - Get appointments for the week containing date
 router.get('/week/:date', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { date } = req.params;
     const technicianId = req.query.technicianId as string | undefined;
 
@@ -120,7 +120,7 @@ router.get('/week/:date', async (req, res) => {
 // GET /api/calendar/month/:year/:month - Get appointments for a month
 router.get('/month/:year/:month', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const year = parseInt(req.params.year);
     const month = parseInt(req.params.month) - 1; // JS months are 0-indexed
     const technicianId = req.query.technicianId as string | undefined;
@@ -174,7 +174,7 @@ router.get('/month/:year/:month', async (req, res) => {
 // GET /api/calendar/availability - Check available time slots
 router.get('/availability', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const date = req.query.date as string;
     const technicianId = req.query.technicianId as string | undefined;
     const duration = parseInt(req.query.duration as string) || DEFAULT_SLOT_DURATION;
@@ -306,7 +306,7 @@ router.get('/availability', async (req, res) => {
 // GET /api/calendar/technicians - Get all technicians with their schedules for a date
 router.get('/technicians', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const date = req.query.date as string;
 
     if (!date) {
@@ -380,7 +380,7 @@ router.get('/technicians', async (req, res) => {
 // GET /api/calendar/unassigned - Get appointments without a technician assigned
 router.get('/unassigned', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     // Get upcoming unassigned appointments
     const appointments = await prisma.appointment.findMany({

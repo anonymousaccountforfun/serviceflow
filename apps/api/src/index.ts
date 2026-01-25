@@ -18,15 +18,22 @@ import analyticsRoutes from './routes/analytics';
 import appointmentRoutes from './routes/appointments';
 import calendarRoutes from './routes/calendar';
 import googleRoutes from './routes/google';
+import phoneNumberRoutes from './routes/phone-numbers';
 
 // Event handlers
 import { registerAllHandlers } from './handlers';
+
+// Services
+import { smsQueue } from './services/sms-queue';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Register event handlers
 registerAllHandlers();
+
+// Start SMS queue processor
+smsQueue.start();
 
 // Middleware
 app.use(helmet());
@@ -57,6 +64,7 @@ app.use('/api/analytics', requireAuth, analyticsRoutes);
 app.use('/api/appointments', requireAuth, appointmentRoutes);
 app.use('/api/calendar', requireAuth, calendarRoutes);
 app.use('/api/google', requireAuth, googleRoutes);
+app.use('/api/phone-numbers', requireAuth, phoneNumberRoutes);
 
 // Error handler
 app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {

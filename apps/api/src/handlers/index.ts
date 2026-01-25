@@ -6,6 +6,7 @@
 
 import { registerMissedCallHandler } from './missed-call';
 import { registerReviewRequestHandler } from './review-request';
+import { registerSmsAIResponseHandler } from './sms-ai-response';
 
 /**
  * Register all event handlers
@@ -16,6 +17,7 @@ export function registerAllHandlers(): void {
 
   registerMissedCallHandler();
   registerReviewRequestHandler();
+  registerSmsAIResponseHandler();
 
   // Future handlers will be registered here:
   // registerEstimateFollowupHandler();
@@ -25,4 +27,4 @@ export function registerAllHandlers(): void {
   console.log('📡 All event handlers registered');
 }
 
-export { registerMissedCallHandler, registerReviewRequestHandler };
+export { registerMissedCallHandler, registerReviewRequestHandler, registerSmsAIResponseHandler };

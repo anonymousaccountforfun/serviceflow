@@ -87,12 +87,18 @@ export default function JobDetailPage() {
 
   const job = data?.data;
 
+  const [updateError, setUpdateError] = useState<string | null>(null);
+
   const updateMutation = useMutation({
     mutationFn: (updates: any) => api.updateJob(jobId, updates),
     onSuccess: () => {
+      setUpdateError(null);
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       setIsEditing(false);
+    },
+    onError: (err: Error) => {
+      setUpdateError(err.message || 'Failed to update job');
     },
   });
 

@@ -9,7 +9,7 @@ const router = Router();
 router.get('/', async (req, res) => {
   try {
     const { page, perPage, sortOrder } = paginationSchema.parse(req.query);
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const status = req.query.status as string | undefined;
 
     const where: any = { organizationId: orgId };
@@ -52,7 +52,7 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
 
     const conversation = await prisma.conversation.findFirst({
       where: { id, organizationId: orgId },
@@ -84,7 +84,7 @@ router.get('/:id', async (req, res) => {
 router.post('/:id/messages', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { content } = req.body;
 
     if (!content || typeof content !== 'string' || content.trim().length === 0) {
@@ -152,7 +152,7 @@ router.post('/:id/messages', async (req, res) => {
 // POST /api/conversations - Start new conversation with a customer
 router.post('/', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { customerId, message } = req.body;
 
     if (!customerId) {
@@ -246,7 +246,7 @@ router.post('/', async (req, res) => {
 router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { status } = req.body;
 
     const validStatuses = ['open', 'pending', 'resolved', 'archived'];

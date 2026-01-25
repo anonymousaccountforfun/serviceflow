@@ -16,6 +16,7 @@ import {
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
+import type { Customer, CreateCustomerInput } from '../../../lib/types';
 
 const sourceOptions = [
   { value: 'referral', label: 'Referral' },
@@ -45,12 +46,18 @@ function CreateCustomerModal({
   const [zip, setZip] = useState('');
   const [source, setSource] = useState('referral');
 
+  const [error, setError] = useState<string | null>(null);
+
   const createMutation = useMutation({
-    mutationFn: (data: any) => api.createCustomer(data),
+    mutationFn: (data: CreateCustomerInput) => api.createCustomer(data),
     onSuccess: () => {
+      setError(null);
       onSuccess();
       resetForm();
       onClose();
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to create customer');
     },
   });
 
@@ -276,7 +283,7 @@ function CreateCustomerModal({
   );
 }
 
-function CustomerCard({ customer }: { customer: any }) {
+function CustomerCard({ customer }: { customer: Customer }) {
   const address = [customer.address, customer.city, customer.state, customer.zip].filter(Boolean).join(', ');
 
   return (
@@ -349,7 +356,7 @@ export default function CustomersPage() {
     queryFn: () => api.getCustomers({ search: search || undefined, page }),
   });
 
-  const customers = data?.data || [];
+  const customers: Customer[] = data?.data || [];
   const meta = data?.meta;
 
   const handleCustomerCreated = () => {
@@ -426,7 +433,7 @@ export default function CustomersPage() {
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {customers.map((customer: any) => (
+            {customers.map((customer) => (
               <CustomerCard key={customer.id} customer={customer} />
             ))}
           </div>

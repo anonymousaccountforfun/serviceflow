@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import type { Conversation, Message } from '../../../lib/types';
 import {
   MessageSquare,
   Send,
@@ -21,7 +22,7 @@ function ConversationList({
   onSelect,
   isLoading,
 }: {
-  conversations: any[];
+  conversations: Conversation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   isLoading: boolean;
@@ -121,17 +122,23 @@ function MessageThread({
     enabled: !!conversationId,
   });
 
+  const [sendError, setSendError] = useState<string | null>(null);
+
   const sendMutation = useMutation({
     mutationFn: (content: string) => api.sendMessage(conversationId, content),
     onSuccess: () => {
+      setSendError(null);
       setNewMessage('');
       queryClient.invalidateQueries({ queryKey: ['conversation', conversationId] });
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
     },
+    onError: (err: Error) => {
+      setSendError(err.message || 'Failed to send message');
+    },
   });
 
-  const conversation = data?.data;
-  const messages = conversation?.messages || [];
+  const conversation = data?.data as Conversation | undefined;
+  const messages: Message[] = conversation?.messages || [];
 
   const handleSend = (e: React.FormEvent) => {
     e.preventDefault();
@@ -218,7 +225,7 @@ function MessageThread({
             <p>No messages yet</p>
           </div>
         ) : (
-          messages.map((msg: any) => {
+          messages.map((msg) => {
             const isOutbound = msg.direction === 'outbound';
             return (
               <div
@@ -291,9 +298,12 @@ export default function InboxPage() {
       queryClient.invalidateQueries({ queryKey: ['conversations'] });
       queryClient.invalidateQueries({ queryKey: ['conversation', selectedId] });
     },
+    onError: (err: Error) => {
+      console.error('Failed to update status:', err.message);
+    },
   });
 
-  const conversations = data?.data || [];
+  const conversations: Conversation[] = data?.data || [];
 
   const handleStatusChange = (status: string) => {
     if (selectedId) {

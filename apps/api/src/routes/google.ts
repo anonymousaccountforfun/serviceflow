@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/google/status - Check connection status
 router.get('/status', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const status = await gbp.getStatus(orgId);
     res.json({ success: true, data: status });
   } catch (error) {
@@ -21,7 +21,7 @@ router.get('/status', async (req, res) => {
 // GET /api/google/connect - Get OAuth URL to connect Google account
 router.get('/connect', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const authUrl = gbp.getAuthUrl(orgId);
     res.json({ success: true, data: { authUrl } });
   } catch (error) {
@@ -67,7 +67,7 @@ router.get('/callback', async (req, res) => {
 // GET /api/google/accounts - List GBP accounts
 router.get('/accounts', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const accounts = await gbp.listAccounts(orgId);
     res.json({ success: true, data: accounts });
   } catch (error) {
@@ -82,7 +82,7 @@ router.get('/accounts', async (req, res) => {
 // GET /api/google/accounts/:accountId/locations - List locations for an account
 router.get('/accounts/:accountId/locations', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { accountId } = req.params;
     const locations = await gbp.listLocations(orgId, accountId);
     res.json({ success: true, data: locations });
@@ -98,7 +98,7 @@ router.get('/accounts/:accountId/locations', async (req, res) => {
 // POST /api/google/locations/select - Select a location to sync
 router.post('/locations/select', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { accountId, locationId, locationName } = req.body;
 
     if (!accountId || !locationId) {
@@ -122,7 +122,7 @@ router.post('/locations/select', async (req, res) => {
 // GET /api/google/reviews - Get Google reviews
 router.get('/reviews', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const reviews = await gbp.getReviews(orgId);
     res.json({ success: true, data: reviews });
   } catch (error) {
@@ -137,7 +137,7 @@ router.get('/reviews', async (req, res) => {
 // POST /api/google/reviews/sync - Sync reviews from Google
 router.post('/reviews/sync', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const result = await gbp.syncReviews(orgId);
     res.json({
       success: true,
@@ -159,7 +159,7 @@ router.post('/reviews/sync', async (req, res) => {
 // POST /api/google/reviews/:reviewId/reply - Reply to a review
 router.post('/reviews/:reviewId/reply', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { reviewId } = req.params;
     const { comment } = req.body;
 
@@ -184,7 +184,7 @@ router.post('/reviews/:reviewId/reply', async (req, res) => {
 // DELETE /api/google/disconnect - Disconnect Google account
 router.delete('/disconnect', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     await gbp.disconnect(orgId);
     res.json({ success: true, data: { disconnected: true } });
   } catch (error) {

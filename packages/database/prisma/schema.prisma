@@ -794,3 +794,30 @@ model SmsOptOut {
   @@unique([organizationId, phone])
   @@index([phone])
 }
+
+// ============================================
+// SMS QUEUE (Quiet Hours)
+// ============================================
+
+model QueuedSms {
+  id             String   @id @default(cuid())
+  organizationId String
+  customerId     String
+  conversationId String?
+  to             String
+  message        String   @db.Text
+  templateType   String?
+  senderType     String   @default("ai") // "ai", "user", "system"
+  metadata       Json?
+  processAfter   DateTime
+  attempts       Int      @default(0)
+  lastError      String?
+  twilioSid      String?
+  messageId      String?
+  processedAt    DateTime?
+  createdAt      DateTime @default(now())
+
+  @@index([organizationId])
+  @@index([processAfter, processedAt])
+  @@index([attempts])
+}

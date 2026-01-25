@@ -2,6 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
+import type { Review } from '../../../lib/types';
 import {
   Star,
   ExternalLink,
@@ -31,17 +32,23 @@ function StarRating({ rating }: { rating: number }) {
   );
 }
 
-function ReviewCard({ review }: { review: any }) {
+function ReviewCard({ review }: { review: Review }) {
   const [showReplyForm, setShowReplyForm] = useState(false);
   const [replyText, setReplyText] = useState('');
   const queryClient = useQueryClient();
 
+  const [replyError, setReplyError] = useState<string | null>(null);
+
   const replyMutation = useMutation({
     mutationFn: (response: string) => api.replyToReview(review.id, response),
     onSuccess: () => {
+      setReplyError(null);
       queryClient.invalidateQueries({ queryKey: ['reviews'] });
       setShowReplyForm(false);
       setReplyText('');
+    },
+    onError: (err: Error) => {
+      setReplyError(err.message || 'Failed to post reply');
     },
   });
 
@@ -167,11 +174,17 @@ function GoogleConnectionStatus() {
     queryFn: () => api.getGoogleStatus(),
   });
 
+  const [syncError, setSyncError] = useState<string | null>(null);
+
   const syncMutation = useMutation({
     mutationFn: () => api.syncGoogleReviews(),
     onSuccess: () => {
+      setSyncError(null);
       queryClient.invalidateQueries({ queryKey: ['reviews'] });
       queryClient.invalidateQueries({ queryKey: ['google', 'status'] });
+    },
+    onError: (err: Error) => {
+      setSyncError(err.message || 'Failed to sync reviews');
     },
   });
 
@@ -244,12 +257,12 @@ export default function ReviewsPage() {
     queryFn: () => api.getReviews({ platform: platformFilter || undefined, page }),
   });
 
-  const reviews = data?.data || [];
+  const reviews: Review[] = data?.data || [];
   const meta = data?.meta;
 
   // Calculate average rating
   const avgRating = reviews.length > 0
-    ? (reviews.reduce((sum: number, r: any) => sum + r.rating, 0) / reviews.length).toFixed(1)
+    ? (reviews.reduce((sum, r) => sum + r.rating, 0) / reviews.length).toFixed(1)
     : '0.0';
 
   const platforms = [
@@ -332,7 +345,7 @@ export default function ReviewsPage() {
       ) : (
         <>
           <div className="space-y-4">
-            {reviews.map((review: any) => (
+            {reviews.map((review) => (
               <ReviewCard key={review.id} review={review} />
             ))}
           </div>

@@ -113,6 +113,19 @@ export async function requireAuth(
       });
     }
 
+    // Validate organization header if present
+    // This prevents users from attempting to access other organizations' data
+    const orgHeader = req.headers['x-organization-id'] as string | undefined;
+    if (orgHeader && orgHeader !== user.organizationId) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'E1009',
+          message: 'Organization access denied',
+        },
+      });
+    }
+
     // Attach auth context to request
     req.auth = {
       userId: user.id,

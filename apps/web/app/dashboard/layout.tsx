@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { Providers } from '../../lib/providers';
+import { ErrorBoundary } from '../../components/ErrorBoundary';
 import { useCurrentUser, useAuthContext } from '../../lib/auth/context';
 
 const navItems = [
@@ -220,8 +221,10 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   return (
-    <Providers>
-      <DashboardContent>{children}</DashboardContent>
-    </Providers>
+    <ErrorBoundary>
+      <Providers>
+        <DashboardContent>{children}</DashboardContent>
+      </Providers>
+    </ErrorBoundary>
   );
 }

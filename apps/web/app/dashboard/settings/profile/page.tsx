@@ -1,10 +1,10 @@
 'use client';
 
-import { useState } from 'react';
-import { ArrowLeft, Camera, Lock, Trash2, Check, Loader2 } from 'lucide-react';
+import { useState, useRef } from 'react';
+import { ArrowLeft, Camera, Lock, Trash2, Check, Loader2, AlertTriangle } from 'lucide-react';
 import Link from 'next/link';
 import { useCurrentUser, useAuthContext } from '../../../../lib/auth/context';
-import { useUser } from '@clerk/nextjs';
+import { useUser, useClerk } from '@clerk/nextjs';
 
 interface EditableFieldProps {
   label: string;
@@ -92,21 +92,73 @@ function EditableField({ label, value, onSave, type = 'text', placeholder }: Edi
   );
 }
 
-function ProfileAvatar({ initials, avatarUrl }: { initials: string; avatarUrl?: string | null }) {
+function ProfileAvatar({
+  initials,
+  avatarUrl,
+  onUpload
+}: {
+  initials: string;
+  avatarUrl?: string | null;
+  onUpload: (file: File) => Promise<void>;
+}) {
   const [isHovering, setIsHovering] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleUpload = () => {
-    // TODO: Implement avatar upload
-    console.log('Upload avatar');
+  const handleClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setUploadError('Please upload a JPEG, PNG, GIF, or WebP image');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    const maxSize = 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setUploadError('Image must be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadError(null);
+
+    try {
+      await onUpload(file);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : 'Failed to upload avatar');
+    } finally {
+      setIsUploading(false);
+      // Reset file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   };
 
   return (
-    <div className="flex justify-center mb-8">
+    <div className="flex flex-col items-center mb-8">
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/gif,image/webp"
+        onChange={handleFileChange}
+        className="hidden"
+      />
       <button
-        onClick={handleUpload}
+        onClick={handleClick}
         onMouseEnter={() => setIsHovering(true)}
         onMouseLeave={() => setIsHovering(false)}
-        className="relative w-24 h-24 rounded-full bg-accent/20 flex items-center justify-center overflow-hidden group"
+        disabled={isUploading}
+        className="relative w-24 h-24 rounded-full bg-accent/20 flex items-center justify-center overflow-hidden group disabled:cursor-wait"
       >
         {avatarUrl ? (
           <img src={avatarUrl} alt="Profile" className="w-full h-full object-cover" />
@@ -114,14 +166,25 @@ function ProfileAvatar({ initials, avatarUrl }: { initials: string; avatarUrl?: 
           <span className="text-3xl font-bold text-accent">{initials}</span>
         )}
 
-        {/* Hover overlay */}
+        {/* Hover/uploading overlay */}
         <div className={`
           absolute inset-0 bg-black/60 flex items-center justify-center transition-opacity
-          ${isHovering ? 'opacity-100' : 'opacity-0'}
+          ${isHovering || isUploading ? 'opacity-100' : 'opacity-0'}
         `}>
-          <Camera className="w-8 h-8 text-white" />
+          {isUploading ? (
+            <Loader2 className="w-8 h-8 text-white animate-spin" />
+          ) : (
+            <Camera className="w-8 h-8 text-white" />
+          )}
         </div>
       </button>
+      <p className="text-xs text-gray-500 mt-2">Click to upload photo</p>
+      {uploadError && (
+        <p className="text-xs text-red-400 mt-1 flex items-center gap-1">
+          <AlertTriangle className="w-3 h-3" />
+          {uploadError}
+        </p>
+      )}
     </div>
   );
 }
@@ -130,7 +193,10 @@ export default function ProfileSettingsPage() {
   const { user, isLoading, refetch } = useAuthContext();
   const { initials } = useCurrentUser();
   const { user: clerkUser } = useUser();
+  const { signOut } = useClerk();
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleUpdateField = async (field: string, value: string) => {
     const response = await fetch('/api/users/me', {
@@ -147,6 +213,24 @@ export default function ProfileSettingsPage() {
     await refetch();
   };
 
+  const handleAvatarUpload = async (file: File) => {
+    const formData = new FormData();
+    formData.append('avatar', file);
+
+    const response = await fetch('/api/users/me/avatar', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error?.message || 'Failed to upload avatar');
+    }
+
+    // Refresh user data to get new avatar URL
+    await refetch();
+  };
+
   const handleChangePassword = () => {
     // Clerk handles password changes
     if (clerkUser) {
@@ -156,9 +240,25 @@ export default function ProfileSettingsPage() {
   };
 
   const handleDeleteAccount = async () => {
-    // TODO: Implement account deletion
-    console.log('Delete account');
-    setShowDeleteConfirm(false);
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch('/api/users/me', {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error?.message || 'Failed to delete account');
+      }
+
+      // Sign out from Clerk and redirect to home
+      await signOut({ redirectUrl: '/' });
+    } catch (error) {
+      setDeleteError(error instanceof Error ? error.message : 'Failed to delete account');
+      setIsDeleting(false);
+    }
   };
 
   if (isLoading) {
@@ -203,6 +303,7 @@ export default function ProfileSettingsPage() {
         <ProfileAvatar
           initials={initials || 'U'}
           avatarUrl={user?.avatarUrl}
+          onUpload={handleAvatarUpload}
         />
 
         {/* Profile fields */}
@@ -219,13 +320,22 @@ export default function ProfileSettingsPage() {
             onSave={(value) => handleUpdateField('lastName', value)}
             placeholder="Enter last name"
           />
-          <EditableField
-            label="Email"
-            value={user?.email || ''}
-            onSave={(value) => handleUpdateField('email', value)}
-            type="email"
-            placeholder="Enter email"
-          />
+          {/* Email field - read only, managed by Clerk */}
+          <div className="flex items-center justify-between py-4 border-b border-white/10 last:border-b-0">
+            <div className="flex-1 min-w-0">
+              <label className="text-sm text-gray-500 block mb-1">Email</label>
+              <p className="text-white truncate">{user?.email || 'Not set'}</p>
+              <p className="text-xs text-gray-600 mt-1">
+                Email is managed through your account settings
+              </p>
+            </div>
+            <button
+              onClick={handleChangePassword}
+              className="text-accent hover:text-accent/80 text-sm font-medium min-h-[44px] min-w-[44px] flex items-center justify-center"
+            >
+              Manage
+            </button>
+          </div>
         </div>
 
         {/* Security section */}
@@ -256,21 +366,41 @@ export default function ProfileSettingsPage() {
           <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
             <div className="bg-surface rounded-xl p-6 max-w-sm w-full">
               <h3 className="text-xl font-bold text-white mb-2">Delete Account?</h3>
-              <p className="text-gray-400 mb-6">
+              <p className="text-gray-400 mb-4">
                 This will permanently delete your account and all data. This action cannot be undone.
               </p>
+
+              {deleteError && (
+                <div className="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                  {deleteError}
+                </div>
+              )}
+
               <div className="flex gap-3">
                 <button
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="flex-1 py-3 px-4 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors font-medium"
+                  onClick={() => {
+                    setShowDeleteConfirm(false);
+                    setDeleteError(null);
+                  }}
+                  disabled={isDeleting}
+                  className="flex-1 py-3 px-4 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors font-medium disabled:opacity-50"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleDeleteAccount}
-                  className="flex-1 py-3 px-4 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors font-medium"
+                  disabled={isDeleting}
+                  className="flex-1 py-3 px-4 rounded-lg bg-red-500 text-white hover:bg-red-600 transition-colors font-medium disabled:opacity-50 flex items-center justify-center gap-2"
                 >
-                  Delete
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete'
+                  )}
                 </button>
               </div>
             </div>

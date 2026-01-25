@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Phone,
@@ -8,13 +8,16 @@ import {
   Check,
   X,
   AlertTriangle,
-  ExternalLink,
-  RefreshCw,
   Bot,
   Loader2,
+  Plus,
+  Trash2,
+  Search,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthContext } from '../../../../lib/auth/context';
+import { api } from '../../../../lib/api';
+import type { PhoneStatus, AvailablePhoneNumber } from '../../../../lib/types';
 
 type ConnectionStatus = 'connected' | 'error' | 'disconnected';
 
@@ -25,7 +28,7 @@ interface IntegrationCardProps {
   status: ConnectionStatus;
   statusText?: string;
   stats?: { label: string; value: string }[];
-  actions?: { label: string; onClick: () => void; variant?: 'primary' | 'secondary' | 'danger' }[];
+  actions?: { label: string; onClick: () => void; variant?: 'primary' | 'secondary' | 'danger'; disabled?: boolean }[];
   children?: React.ReactNode;
 }
 
@@ -103,8 +106,10 @@ function IntegrationCard({
             <button
               key={action.label}
               onClick={action.onClick}
+              disabled={action.disabled}
               className={`
                 px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                ${action.disabled ? 'opacity-50 cursor-not-allowed' : ''}
                 ${action.variant === 'primary'
                   ? 'bg-accent text-white hover:bg-accent/90'
                   : action.variant === 'danger'
@@ -144,23 +149,375 @@ function UsageBar({ used, total, label }: { used: number; total: number; label: 
   );
 }
 
+// Phone Number Management Component
+function PhoneNumberManager() {
+  const [phoneStatus, setPhoneStatus] = useState<PhoneStatus | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showAddNumber, setShowAddNumber] = useState(false);
+  const [addMode, setAddMode] = useState<'search' | 'existing' | null>(null);
+  const [areaCode, setAreaCode] = useState('');
+  const [availableNumbers, setAvailableNumbers] = useState<AvailablePhoneNumber[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [isProvisioning, setIsProvisioning] = useState(false);
+  const [existingNumber, setExistingNumber] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const fetchPhoneStatus = async () => {
+    try {
+      const response = await api.getPhoneStatus();
+      if (response.data) {
+        setPhoneStatus(response.data);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to load phone status';
+      setError(message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchPhoneStatus();
+  }, []);
+
+  const handleSearchNumbers = async () => {
+    if (areaCode.length !== 3) {
+      setError('Please enter a valid 3-digit area code');
+      return;
+    }
+
+    setIsSearching(true);
+    setError(null);
+    try {
+      const response = await api.searchPhoneNumbers(areaCode);
+      if (response.data) {
+        setAvailableNumbers(response.data);
+        if (response.data.length === 0) {
+          setError('No numbers available in this area code. Try another.');
+        }
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to search phone numbers';
+      setError(message);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const handleProvisionNumber = async (phoneNumber: string) => {
+    setIsProvisioning(true);
+    setError(null);
+    try {
+      await api.provisionPhoneNumber(phoneNumber);
+      await fetchPhoneStatus();
+      setShowAddNumber(false);
+      setAddMode(null);
+      setAvailableNumbers([]);
+      setAreaCode('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to provision phone number';
+      setError(message);
+    } finally {
+      setIsProvisioning(false);
+    }
+  };
+
+  const handleUseExisting = async () => {
+    if (!existingNumber.trim()) {
+      setError('Please enter a phone number');
+      return;
+    }
+
+    setIsProvisioning(true);
+    setError(null);
+    try {
+      await api.useExistingPhoneNumber(existingNumber);
+      await fetchPhoneStatus();
+      setShowAddNumber(false);
+      setAddMode(null);
+      setExistingNumber('');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to register phone number';
+      setError(message);
+    } finally {
+      setIsProvisioning(false);
+    }
+  };
+
+  const handleDeleteNumber = async (id: string) => {
+    if (!confirm('Are you sure you want to remove this phone number? This cannot be undone.')) {
+      return;
+    }
+
+    setDeletingId(id);
+    setError(null);
+    try {
+      await api.deletePhoneNumber(id);
+      await fetchPhoneStatus();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to delete phone number';
+      setError(message);
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  const formatPhoneNumber = (phone: string) => {
+    const cleaned = phone.replace(/\D/g, '');
+    if (cleaned.length === 11 && cleaned.startsWith('1')) {
+      return `+1 (${cleaned.slice(1, 4)}) ${cleaned.slice(4, 7)}-${cleaned.slice(7)}`;
+    }
+    if (cleaned.length === 10) {
+      return `(${cleaned.slice(0, 3)}) ${cleaned.slice(3, 6)}-${cleaned.slice(6)}`;
+    }
+    return phone;
+  };
+
+  if (isLoading) {
+    return (
+      <div className="bg-surface rounded-xl p-5">
+        <div className="flex items-center gap-3">
+          <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+          <span className="text-gray-400">Loading phone configuration...</span>
+        </div>
+      </div>
+    );
+  }
+
+  const twilioStatus: ConnectionStatus = phoneStatus?.twilioConfigured ? 'connected' : 'error';
+  const hasNumbers = phoneStatus?.phoneNumbers && phoneStatus.phoneNumbers.length > 0;
+
+  return (
+    <div className="bg-surface rounded-xl p-5">
+      <div className="flex items-start gap-4 mb-4">
+        <div className="p-3 rounded-lg bg-white/10 text-white flex-shrink-0">
+          <Phone className="w-6 h-6" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <h3 className="text-lg font-semibold text-white">Phone Numbers (Twilio)</h3>
+          <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium mt-1 ${
+            phoneStatus?.twilioConfigured
+              ? 'bg-green-500/20 text-green-400'
+              : 'bg-amber-500/20 text-amber-400'
+          }`}>
+            {phoneStatus?.twilioConfigured ? (
+              <>
+                <Check className="w-4 h-4" />
+                Twilio Connected
+              </>
+            ) : (
+              <>
+                <AlertTriangle className="w-4 h-4" />
+                Twilio Not Configured
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-3 mb-4">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+
+      {!phoneStatus?.twilioConfigured && (
+        <p className="text-gray-400 text-sm mb-4">
+          Twilio credentials are not configured. Contact your administrator to set up TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN.
+        </p>
+      )}
+
+      {/* Current Phone Numbers */}
+      {hasNumbers && (
+        <div className="space-y-2 mb-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Your Phone Numbers</p>
+          {phoneStatus?.phoneNumbers.map((phone) => (
+            <div
+              key={phone.id}
+              className="flex items-center justify-between bg-white/5 rounded-lg p-3"
+            >
+              <div>
+                <p className="text-white font-mono">{formatPhoneNumber(phone.number)}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <span className={`text-xs px-2 py-0.5 rounded ${
+                    phone.type === 'main' ? 'bg-accent/20 text-accent' : 'bg-gray-500/20 text-gray-400'
+                  }`}>
+                    {phone.type === 'main' ? 'Main' : 'Tracking'}
+                  </span>
+                  {phone.isExternal && (
+                    <span className="text-xs px-2 py-0.5 rounded bg-blue-500/20 text-blue-400">
+                      External
+                    </span>
+                  )}
+                  {phone.label && (
+                    <span className="text-xs text-gray-500">{phone.label}</span>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={() => handleDeleteNumber(phone.id)}
+                disabled={deletingId === phone.id}
+                className="p-2 text-gray-400 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
+              >
+                {deletingId === phone.id ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash2 className="w-4 h-4" />
+                )}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add Number Section */}
+      {!showAddNumber ? (
+        <button
+          onClick={() => setShowAddNumber(true)}
+          disabled={!phoneStatus?.twilioConfigured}
+          className="flex items-center gap-2 px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Plus className="w-4 h-4" />
+          Add Phone Number
+        </button>
+      ) : (
+        <div className="border-t border-white/10 pt-4 mt-4">
+          {!addMode ? (
+            <div className="space-y-3">
+              <p className="text-white font-medium">How would you like to add a number?</p>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  onClick={() => setAddMode('search')}
+                  className="p-4 bg-white/5 hover:bg-white/10 rounded-lg text-left transition-colors"
+                >
+                  <Search className="w-5 h-5 text-accent mb-2" />
+                  <p className="text-white font-medium">Get New Number</p>
+                  <p className="text-xs text-gray-400">Search and provision a new Twilio number</p>
+                </button>
+                <button
+                  onClick={() => setAddMode('existing')}
+                  className="p-4 bg-white/5 hover:bg-white/10 rounded-lg text-left transition-colors"
+                >
+                  <Phone className="w-5 h-5 text-accent mb-2" />
+                  <p className="text-white font-medium">Use Existing</p>
+                  <p className="text-xs text-gray-400">Register a number you already own</p>
+                </button>
+              </div>
+              <button
+                onClick={() => setShowAddNumber(false)}
+                className="text-sm text-gray-400 hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : addMode === 'search' ? (
+            <div className="space-y-4">
+              <p className="text-white font-medium">Search for Available Numbers</p>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Area code (e.g. 415)"
+                  value={areaCode}
+                  onChange={(e) => setAreaCode(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                  className="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent"
+                  maxLength={3}
+                />
+                <button
+                  onClick={handleSearchNumbers}
+                  disabled={isSearching || areaCode.length !== 3}
+                  className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {isSearching ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Search className="w-4 h-4" />
+                  )}
+                  Search
+                </button>
+              </div>
+
+              {availableNumbers.length > 0 && (
+                <div className="space-y-2 max-h-60 overflow-y-auto">
+                  {availableNumbers.map((num) => (
+                    <div
+                      key={num.phoneNumber}
+                      className="flex items-center justify-between bg-white/5 rounded-lg p-3"
+                    >
+                      <div>
+                        <p className="text-white font-mono">{formatPhoneNumber(num.phoneNumber)}</p>
+                        <p className="text-xs text-gray-400">
+                          {num.locality}, {num.region}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => handleProvisionNumber(num.phoneNumber)}
+                        disabled={isProvisioning}
+                        className="px-3 py-1.5 bg-accent text-white text-sm rounded-lg hover:bg-accent/90 disabled:opacity-50"
+                      >
+                        {isProvisioning ? 'Provisioning...' : 'Select'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <button
+                onClick={() => {
+                  setAddMode(null);
+                  setAvailableNumbers([]);
+                  setAreaCode('');
+                }}
+                className="text-sm text-gray-400 hover:text-white"
+              >
+                ← Back
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-white font-medium">Register Existing Number</p>
+              <p className="text-sm text-gray-400">
+                Enter a phone number you already own. Note: This won&apos;t enable full Twilio features unless you configure forwarding.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  placeholder="(555) 123-4567"
+                  value={existingNumber}
+                  onChange={(e) => setExistingNumber(e.target.value)}
+                  className="flex-1 bg-white/10 border border-white/20 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-accent"
+                />
+                <button
+                  onClick={handleUseExisting}
+                  disabled={isProvisioning || !existingNumber.trim()}
+                  className="px-4 py-2 bg-accent text-white rounded-lg hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isProvisioning ? 'Registering...' : 'Register'}
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  setAddMode(null);
+                  setExistingNumber('');
+                }}
+                className="text-sm text-gray-400 hover:text-white"
+              >
+                ← Back
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function IntegrationsSettingsPage() {
   const { organization, isLoading } = useAuthContext();
   const [isSyncing, setIsSyncing] = useState(false);
   const [isTesting, setIsTesting] = useState<string | null>(null);
 
   const settings = organization?.settings || {};
-  const phoneSetup = settings.phoneSetup || {};
-
-  // Determine Twilio status
-  const hasTwilioNumber = !!phoneSetup.phoneNumber;
-  const twilioStatus: ConnectionStatus = hasTwilioNumber ? 'connected' : 'disconnected';
-
-  // Mock data - would come from API in production
-  const twilioStats = hasTwilioNumber ? [
-    { label: 'Calls', value: '47' },
-    { label: 'SMS Sent', value: '156' },
-  ] : undefined;
 
   // Google status - would check actual OAuth connection
   const googleConnected = false; // Placeholder
@@ -169,22 +526,6 @@ export default function IntegrationsSettingsPage() {
   // Vapi status
   const vapiEnabled = settings.aiSettings?.voiceEnabled;
   const vapiStatus: ConnectionStatus = vapiEnabled ? 'connected' : 'disconnected';
-
-  const handleTestCall = async () => {
-    setIsTesting('call');
-    // Simulate test
-    await new Promise(r => setTimeout(r, 2000));
-    setIsTesting(null);
-    alert('Test call initiated! Check your phone.');
-  };
-
-  const handleTestSMS = async () => {
-    setIsTesting('sms');
-    // Simulate test
-    await new Promise(r => setTimeout(r, 1500));
-    setIsTesting(null);
-    alert('Test SMS sent! Check your phone.');
-  };
 
   const handleGoogleConnect = () => {
     // Would initiate OAuth flow
@@ -241,38 +582,7 @@ export default function IntegrationsSettingsPage() {
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
             Phone & SMS
           </h2>
-          <IntegrationCard
-            name="Twilio"
-            description="Connect Twilio to handle calls and SMS messages."
-            icon={<Phone className="w-6 h-6" />}
-            status={twilioStatus}
-            stats={twilioStats}
-            actions={hasTwilioNumber ? [
-              {
-                label: isTesting === 'call' ? 'Calling...' : 'Test Call',
-                onClick: handleTestCall,
-              },
-              {
-                label: isTesting === 'sms' ? 'Sending...' : 'Test SMS',
-                onClick: handleTestSMS,
-              },
-            ] : [
-              {
-                label: 'Set Up Phone',
-                onClick: () => window.location.href = '/onboarding',
-                variant: 'primary',
-              },
-            ]}
-          >
-            {hasTwilioNumber && (
-              <div className="space-y-2">
-                <div>
-                  <p className="text-xs text-gray-500">Phone Number</p>
-                  <p className="text-white font-mono">{phoneSetup.phoneNumber}</p>
-                </div>
-              </div>
-            )}
-          </IntegrationCard>
+          <PhoneNumberManager />
         </section>
 
         {/* Reviews Section */}
@@ -317,7 +627,7 @@ export default function IntegrationsSettingsPage() {
           >
             {googleConnected && (
               <div className="space-y-1">
-                <p className="text-white">Mike's Plumbing</p>
+                <p className="text-white">Mike&apos;s Plumbing</p>
                 <p className="text-xs text-gray-500">Last synced: 2 hours ago</p>
               </div>
             )}

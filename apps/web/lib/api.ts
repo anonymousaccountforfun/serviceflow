@@ -1,5 +1,21 @@
 // API client for ServiceFlow backend
 
+import type {
+  Customer,
+  Job,
+  Appointment,
+  Conversation,
+  Message,
+  Review,
+  User,
+  Organization,
+  OrganizationSettings,
+  CreateCustomerInput,
+  CreateJobInput,
+  UpdateJobInput,
+  CreateAppointmentInput,
+} from './types';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 interface ApiResponse<T> {
@@ -12,6 +28,28 @@ interface ApiResponse<T> {
     total: number;
     totalPages: number;
   };
+}
+
+interface AnalyticsOverview {
+  totalJobs: number;
+  completedJobs: number;
+  revenue: number;
+  newCustomers: number;
+  averageRating: number;
+  callsReceived: number;
+  missedCalls: number;
+}
+
+interface CalendarSlot {
+  start: string;
+  end: string;
+  available: boolean;
+}
+
+interface GoogleStatus {
+  connected: boolean;
+  locationName?: string;
+  lastSyncAt?: string;
 }
 
 class ApiClient {
@@ -59,13 +97,25 @@ class ApiClient {
       body: body ? JSON.stringify(body) : undefined,
     });
 
-    // Handle unauthorized responses
-    if (response.status === 401) {
-      // Could redirect to sign-in or trigger auth refresh
-      console.error('Unauthorized request to:', path);
+    // Parse response body
+    const data = await response.json().catch(() => ({}));
+
+    // Handle error responses
+    if (!response.ok) {
+      // Handle unauthorized responses
+      if (response.status === 401) {
+        console.error('Unauthorized request to:', path);
+      }
+
+      // Extract error message from response
+      const errorMessage = data.error?.message || data.message || `Request failed with status ${response.status}`;
+      const error = new Error(errorMessage) as Error & { code?: string; status?: number };
+      error.code = data.error?.code;
+      error.status = response.status;
+      throw error;
     }
 
-    return response.json();
+    return data;
   }
 
   // Analytics
@@ -73,42 +123,42 @@ class ApiClient {
     const params = new URLSearchParams();
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
-    return this.request<any>('GET', `/api/analytics/overview?${params}`);
+    return this.request<AnalyticsOverview>('GET', `/api/analytics/overview?${params}`);
   }
 
   async getAnalyticsCalls(startDate?: string, endDate?: string) {
     const params = new URLSearchParams();
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
-    return this.request<any>('GET', `/api/analytics/calls?${params}`);
+    return this.request<{ total: number; answered: number; missed: number; byDay: Array<{ date: string; count: number }> }>('GET', `/api/analytics/calls?${params}`);
   }
 
   async getAnalyticsRevenue(startDate?: string, endDate?: string) {
     const params = new URLSearchParams();
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
-    return this.request<any>('GET', `/api/analytics/revenue?${params}`);
+    return this.request<{ total: number; byMonth: Array<{ month: string; amount: number }> }>('GET', `/api/analytics/revenue?${params}`);
   }
 
   // Calendar
   async getCalendarDay(date: string, technicianId?: string) {
     const params = new URLSearchParams();
     if (technicianId) params.set('technicianId', technicianId);
-    return this.request<any>('GET', `/api/calendar/day/${date}?${params}`);
+    return this.request<Appointment[]>('GET', `/api/calendar/day/${date}?${params}`);
   }
 
   async getCalendarWeek(date: string) {
-    return this.request<any>('GET', `/api/calendar/week/${date}`);
+    return this.request<Record<string, Appointment[]>>('GET', `/api/calendar/week/${date}`);
   }
 
   async getCalendarMonth(year: number, month: number) {
-    return this.request<any>('GET', `/api/calendar/month/${year}/${month}`);
+    return this.request<Record<string, Appointment[]>>('GET', `/api/calendar/month/${year}/${month}`);
   }
 
   async getAvailability(date: string, duration?: number) {
     const params = new URLSearchParams({ date });
     if (duration) params.set('duration', String(duration));
-    return this.request<any>('GET', `/api/calendar/availability?${params}`);
+    return this.request<CalendarSlot[]>('GET', `/api/calendar/availability?${params}`);
   }
 
   // Appointments
@@ -117,15 +167,15 @@ class ApiClient {
     if (params?.startDate) searchParams.set('startDate', params.startDate);
     if (params?.endDate) searchParams.set('endDate', params.endDate);
     if (params?.status) searchParams.set('status', params.status);
-    return this.request<any[]>('GET', `/api/appointments?${searchParams}`);
+    return this.request<Appointment[]>('GET', `/api/appointments?${searchParams}`);
   }
 
-  async createAppointment(data: { jobId: string; scheduledAt: string; scheduledEndAt?: string; assignedToId?: string; notes?: string }) {
-    return this.request<any>('POST', '/api/appointments', data);
+  async createAppointment(data: CreateAppointmentInput) {
+    return this.request<Appointment>('POST', '/api/appointments', data);
   }
 
   async rescheduleAppointment(id: string, data: { scheduledAt: string; reason?: string }) {
-    return this.request<any>('POST', `/api/appointments/${id}/reschedule`, data);
+    return this.request<Appointment>('POST', `/api/appointments/${id}/reschedule`, data);
   }
 
   // Conversations
@@ -133,19 +183,19 @@ class ApiClient {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set('status', params.status);
     if (params?.page) searchParams.set('page', String(params.page));
-    return this.request<any[]>('GET', `/api/conversations?${searchParams}`);
+    return this.request<Conversation[]>('GET', `/api/conversations?${searchParams}`);
   }
 
   async getConversation(id: string) {
-    return this.request<any>('GET', `/api/conversations/${id}`);
+    return this.request<Conversation>('GET', `/api/conversations/${id}`);
   }
 
   async sendMessage(conversationId: string, content: string) {
-    return this.request<any>('POST', `/api/conversations/${conversationId}/messages`, { content });
+    return this.request<Message>('POST', `/api/conversations/${conversationId}/messages`, { content });
   }
 
   async updateConversationStatus(id: string, status: string) {
-    return this.request<any>('PATCH', `/api/conversations/${id}`, { status });
+    return this.request<Conversation>('PATCH', `/api/conversations/${id}`, { status });
   }
 
   // Customers
@@ -153,15 +203,15 @@ class ApiClient {
     const searchParams = new URLSearchParams();
     if (params?.page) searchParams.set('page', String(params.page));
     if (params?.search) searchParams.set('search', params.search);
-    return this.request<any[]>('GET', `/api/customers?${searchParams}`);
+    return this.request<Customer[]>('GET', `/api/customers?${searchParams}`);
   }
 
   async getCustomer(id: string) {
-    return this.request<any>('GET', `/api/customers/${id}`);
+    return this.request<Customer>('GET', `/api/customers/${id}`);
   }
 
-  async createCustomer(data: any) {
-    return this.request<any>('POST', '/api/customers', data);
+  async createCustomer(data: CreateCustomerInput) {
+    return this.request<Customer>('POST', '/api/customers', data);
   }
 
   // Jobs
@@ -171,19 +221,19 @@ class ApiClient {
     if (params?.customerId) searchParams.set('customerId', params.customerId);
     if (params?.page) searchParams.set('page', String(params.page));
     if (params?.limit) searchParams.set('limit', String(params.limit));
-    return this.request<any[]>('GET', `/api/jobs?${searchParams}`);
+    return this.request<Job[]>('GET', `/api/jobs?${searchParams}`);
   }
 
   async getJob(id: string) {
-    return this.request<any>('GET', `/api/jobs/${id}`);
+    return this.request<Job>('GET', `/api/jobs/${id}`);
   }
 
-  async createJob(data: any) {
-    return this.request<any>('POST', '/api/jobs', data);
+  async createJob(data: CreateJobInput) {
+    return this.request<Job>('POST', '/api/jobs', data);
   }
 
-  async updateJob(id: string, data: any) {
-    return this.request<any>('PATCH', `/api/jobs/${id}`, data);
+  async updateJob(id: string, data: UpdateJobInput) {
+    return this.request<Job>('PATCH', `/api/jobs/${id}`, data);
   }
 
   // Reviews
@@ -191,33 +241,58 @@ class ApiClient {
     const searchParams = new URLSearchParams();
     if (params?.platform) searchParams.set('platform', params.platform);
     if (params?.page) searchParams.set('page', String(params.page));
-    return this.request<any[]>('GET', `/api/reviews?${searchParams}`);
+    return this.request<Review[]>('GET', `/api/reviews?${searchParams}`);
   }
 
   async replyToReview(reviewId: string, response: string) {
-    return this.request<any>('POST', `/api/reviews/${reviewId}/reply`, { response });
+    return this.request<Review>('POST', `/api/reviews/${reviewId}/reply`, { response });
   }
 
   // Google
   async getGoogleStatus() {
-    return this.request<any>('GET', '/api/google/status');
+    return this.request<GoogleStatus>('GET', '/api/google/status');
   }
 
   async syncGoogleReviews() {
-    return this.request<any>('POST', '/api/google/reviews/sync');
+    return this.request<{ synced: number }>('POST', '/api/google/reviews/sync');
+  }
+
+  // Phone Numbers
+  async getPhoneNumbers() {
+    return this.request<PhoneNumber[]>('GET', '/api/phone-numbers');
+  }
+
+  async getPhoneStatus() {
+    return this.request<PhoneStatus>('GET', '/api/phone-numbers/status');
+  }
+
+  async searchPhoneNumbers(areaCode: string) {
+    return this.request<AvailablePhoneNumber[]>('GET', `/api/phone-numbers/search?areaCode=${areaCode}`);
+  }
+
+  async provisionPhoneNumber(phoneNumber: string, label?: string) {
+    return this.request<PhoneNumber>('POST', '/api/phone-numbers/provision', { phoneNumber, label });
+  }
+
+  async useExistingPhoneNumber(phoneNumber: string, label?: string) {
+    return this.request<PhoneNumber>('POST', '/api/phone-numbers/use-existing', { phoneNumber, label });
+  }
+
+  async deletePhoneNumber(id: string) {
+    return this.request<{ message: string }>('DELETE', `/api/phone-numbers/${id}`);
   }
 
   // User & Organization
   async getCurrentUser() {
-    return this.request<any>('GET', '/api/users/me');
+    return this.request<User>('GET', '/api/users/me');
   }
 
   async updateCurrentUser(data: { firstName?: string; lastName?: string; phone?: string }) {
-    return this.request<any>('PATCH', '/api/users/me', data);
+    return this.request<User>('PATCH', '/api/users/me', data);
   }
 
-  async updateOrganizationSettings(data: any) {
-    return this.request<any>('PUT', '/api/organizations/settings', data);
+  async updateOrganizationSettings(data: Partial<OrganizationSettings>) {
+    return this.request<Organization>('PUT', '/api/organizations/settings', data);
   }
 }
 

@@ -542,8 +542,8 @@ router.post('/sms', async (req: Request, res: Response) => {
       },
     });
 
-    // TODO: Phase 2 - Trigger AI response
-    console.log(`TODO: Trigger AI response for conversation ${conversation.id}`);
+    // AI response is triggered via the sms.received event handler
+    // See: handlers/sms-ai-response.ts
 
     await markWebhookProcessed(webhookId);
 

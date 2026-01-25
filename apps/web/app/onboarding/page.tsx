@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Building2,
@@ -435,6 +435,19 @@ export default function OnboardingPage() {
     voiceEnabled: true,
   });
 
+  // Detect user's timezone on mount
+  const [detectedTimezone, setDetectedTimezone] = useState('America/New_York');
+  useEffect(() => {
+    try {
+      const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (tz) {
+        setDetectedTimezone(tz);
+      }
+    } catch {
+      // Fallback to default timezone if detection fails
+    }
+  }, []);
+
   const steps = [
     { icon: Building2, label: 'Business' },
     { icon: Phone, label: 'Phone' },
@@ -472,6 +485,7 @@ export default function OnboardingPage() {
             phoneSetup,
             businessHours,
             aiSettings,
+            timezone: detectedTimezone,
           }),
         });
 

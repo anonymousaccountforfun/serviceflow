@@ -19,6 +19,7 @@ import {
 import { format } from 'date-fns';
 import Link from 'next/link';
 import { api } from '../../../lib/api';
+import type { Job, Customer, CreateJobInput } from '../../../lib/types';
 
 const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
   lead: { bg: 'bg-gray-500/20', text: 'text-gray-400', label: 'Lead' },
@@ -81,12 +82,18 @@ function CreateJobModal({
 
   const customers = customersData?.data || [];
 
+  const [error, setError] = useState<string | null>(null);
+
   const createMutation = useMutation({
-    mutationFn: (data: any) => api.createJob(data),
+    mutationFn: (data: CreateJobInput) => api.createJob(data),
     onSuccess: () => {
+      setError(null);
       onSuccess();
       resetForm();
       onClose();
+    },
+    onError: (err: Error) => {
+      setError(err.message || 'Failed to create job');
     },
   });
 
@@ -117,7 +124,7 @@ function CreateJobModal({
     });
   };
 
-  const selectCustomer = (customer: any) => {
+  const selectCustomer = (customer: Customer) => {
     setCustomerId(customer.id);
     setCustomerSearch(`${customer.firstName} ${customer.lastName}`);
     setShowCustomerDropdown(false);
@@ -186,7 +193,7 @@ function CreateJobModal({
             {/* Customer Dropdown */}
             {showCustomerDropdown && customerSearch && customers.length > 0 && (
               <div className="absolute z-10 w-full mt-1 bg-navy-800 border border-white/10 rounded-lg shadow-lg max-h-48 overflow-y-auto">
-                {customers.map((customer: any) => (
+                {(customers as Customer[]).map((customer) => (
                   <button
                     key={customer.id}
                     type="button"
@@ -286,6 +293,14 @@ function CreateJobModal({
             />
           </div>
 
+          {/* Error Message */}
+          {error && (
+            <div className="p-3 bg-red-500/20 border border-red-500/30 rounded-lg text-red-400 text-sm flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              {error}
+            </div>
+          )}
+
           {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
@@ -298,6 +313,7 @@ function CreateJobModal({
             <button
               type="submit"
               disabled={!title.trim() || createMutation.isPending}
+              onClick={() => setError(null)}
               className="flex-1 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center justify-center gap-2"
             >
               {createMutation.isPending ? (
@@ -319,7 +335,7 @@ function CreateJobModal({
   );
 }
 
-function JobCard({ job }: { job: any }) {
+function JobCard({ job }: { job: Job }) {
   const status = statusConfig[job.status] || statusConfig.lead;
   const priority = priorityConfig[job.priority] || priorityConfig.normal;
   const isEmergency = job.priority === 'emergency';
@@ -510,7 +526,7 @@ export default function JobsPage() {
       ) : (
         <>
           <div className="space-y-3">
-            {jobs.map((job: any) => (
+            {(jobs as Job[]).map((job) => (
               <JobCard key={job.id} job={job} />
             ))}
           </div>

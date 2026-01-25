@@ -75,7 +75,7 @@ function percentChange(current: number, previous: number): number | null {
  */
 router.get('/overview', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { period, startDate, endDate } = req.query as any;
     const { start, end } = getDateRange(period, startDate, endDate);
 
@@ -222,7 +222,7 @@ router.get('/overview', async (req, res) => {
  */
 router.get('/calls', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { period, startDate, endDate } = req.query as any;
     const { start, end } = getDateRange(period, startDate, endDate);
 
@@ -310,7 +310,7 @@ router.get('/calls', async (req, res) => {
  */
 router.get('/revenue', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { period, startDate, endDate } = req.query as any;
     const { start, end } = getDateRange(period, startDate, endDate);
 
@@ -408,7 +408,7 @@ router.get('/revenue', async (req, res) => {
  */
 router.get('/customers', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { period, startDate, endDate } = req.query as any;
     const { start, end } = getDateRange(period, startDate, endDate);
 
@@ -483,7 +483,7 @@ router.get('/customers', async (req, res) => {
  */
 router.get('/conversations', async (req, res) => {
   try {
-    const orgId = req.headers['x-organization-id'] as string;
+    const orgId = req.auth!.organizationId;
     const { period, startDate, endDate } = req.query as any;
     const { start, end } = getDateRange(period, startDate, endDate);
 
