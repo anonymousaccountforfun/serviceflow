@@ -40,12 +40,11 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
         />
       )}
 
-      {/* Sidebar */}
+      {/* Sidebar - Fixed on all screen sizes */}
       <aside className={`
-        fixed top-0 left-0 z-50 h-full w-64 bg-white border-r border-gray-200
+        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-gray-200
         transform transition-transform duration-200 ease-in-out
-        lg:translate-x-0 lg:static lg:z-auto
-        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
+        ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
       `}>
         <div className="flex flex-col h-full">
           {/* Logo */}
@@ -96,7 +95,7 @@ function Sidebar({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) 
               Settings
             </Link>
             <button
-              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 w-full"
+              className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 w-full text-left"
             >
               <LogOut className="w-5 h-5" />
               Sign out
@@ -126,8 +125,8 @@ export default function DashboardLayout({
       <div className="min-h-screen bg-gray-50">
         <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
 
-        {/* Main content */}
-        <div className="lg:pl-64">
+        {/* Main content - offset by sidebar width on large screens */}
+        <div className="lg:ml-64 min-h-screen flex flex-col">
           {/* Top bar */}
           <header className="sticky top-0 z-30 h-16 bg-white border-b border-gray-200 flex items-center px-4 lg:px-6">
             <button
@@ -148,7 +147,7 @@ export default function DashboardLayout({
           </header>
 
           {/* Page content */}
-          <main className="p-4 lg:p-6">
+          <main className="flex-1 p-4 lg:p-6">
             {children}
           </main>
         </div>
