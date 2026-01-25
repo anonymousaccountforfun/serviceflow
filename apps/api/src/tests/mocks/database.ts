@@ -5,9 +5,7 @@
  * in integration tests without hitting a real database.
  */
 
-import { jest } from '@jest/globals';
-
-// Create mock Prisma methods
+// Create mock Prisma methods using global jest
 const createMockMethods = () => ({
   findUnique: jest.fn(),
   findFirst: jest.fn(),

@@ -1,16 +1,11 @@
 /**
  * Jest Test Setup
  *
- * This file runs before all tests and sets up the test environment.
+ * This file runs after environment setup but before tests.
+ * Environment variables are set in env-setup.ts (setupFiles).
  */
 
-import { mockPrisma, resetMocks } from './mocks/database';
-
-// Set test environment variables
-process.env.NODE_ENV = 'test';
-process.env.CLERK_SECRET_KEY = 'test_clerk_secret';
-process.env.TWILIO_ACCOUNT_SID = 'test_twilio_sid';
-process.env.TWILIO_AUTH_TOKEN = 'test_twilio_token';
+import { resetMocks } from './mocks/database';
 
 // Reset mocks before each test
 beforeEach(() => {
@@ -28,6 +23,3 @@ beforeAll(() => {
 afterAll(() => {
   jest.restoreAllMocks();
 });
-
-// Export mock for use in tests
-export { mockPrisma };

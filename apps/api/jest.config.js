@@ -12,9 +12,15 @@ module.exports = {
   ],
   coverageDirectory: 'coverage',
   coverageReporters: ['text', 'lcov'],
+  setupFiles: ['<rootDir>/src/tests/env-setup.ts'],
   setupFilesAfterEnv: ['<rootDir>/src/tests/setup.ts'],
   testTimeout: 10000,
   moduleNameMapper: {
     '^@serviceflow/database$': '<rootDir>/src/tests/mocks/database.ts',
+  },
+  transform: {
+    '^.+\\.ts$': ['ts-jest', {
+      isolatedModules: true,
+    }],
   },
 };
