@@ -33,6 +33,10 @@ import phoneNumberRoutes from './routes/phone-numbers';
 import estimateRoutes from './routes/estimates';
 import invoiceRoutes from './routes/invoices';
 import templateRoutes from './routes/templates';
+import technicianRoutes from './routes/technician';
+import teamRoutes from './routes/team';
+import jobCompletionRoutes from './routes/job-completion';
+import pushRoutes from './routes/push';
 
 // Event handlers
 import { registerAllHandlers } from './handlers';
@@ -96,6 +100,10 @@ app.use('/api/phone-numbers', generalLimiter, requireAuth, phoneNumberRoutes);
 app.use('/api/estimates', generalLimiter, requireAuth, estimateRoutes);
 app.use('/api/invoices', generalLimiter, requireAuth, invoiceRoutes);
 app.use('/api/templates', generalLimiter, requireAuth, templateRoutes);
+app.use('/api/technician', generalLimiter, requireAuth, technicianRoutes);
+app.use('/api/team', generalLimiter, requireAuth, teamRoutes);
+app.use('/api/jobs', generalLimiter, requireAuth, jobCompletionRoutes); // Job completion extends jobs routes
+app.use('/api/push', generalLimiter, requireAuth, pushRoutes);
 
 // Sentry error handler (must be before custom error handler)
 app.use(sentryErrorHandler());

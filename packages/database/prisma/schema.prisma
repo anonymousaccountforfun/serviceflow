@@ -83,6 +83,8 @@ model User {
   assignedAppointments Appointment[] @relation("AssignedTechnician")
   assignedConversations Conversation[] @relation("AssignedAgent")
   sentMessages   Message[]    @relation("MessageSender")
+  pushSubscriptions PushSubscription[]
+  notificationPreference NotificationPreference?
 
   @@index([organizationId])
   @@index([clerkId])
@@ -382,43 +384,77 @@ enum JobPriority {
 }
 
 model Estimate {
-  id             String         @id @default(cuid())
-  jobId          String
-  organizationId String
-  customerId     String
-  status         EstimateStatus @default(draft)
-  lineItems      Json           @default("[]")
-  subtotal       Int            @default(0) // cents
-  tax            Int            @default(0) // cents
-  total          Int            @default(0) // cents
-  notes          String?
-  validUntil     DateTime?
-  sentAt         DateTime?
-  viewedAt       DateTime?
-  signedAt       DateTime?
-  signatureUrl   String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  id                String         @id @default(cuid())
+  number            String         // EST-001, EST-002, etc. (per organization)
+  organizationId    String
+  customerId        String
+  jobId             String?
+
+  status            EstimateStatus @default(draft)
+
+  subtotal          Int            @default(0) // cents
+  taxRate           Int            @default(0) // percentage * 100 (e.g., 825 = 8.25%)
+  taxAmount         Int            @default(0) // cents
+  total             Int            @default(0) // cents
+
+  validUntil        DateTime?
+  sentAt            DateTime?
+  viewedAt          DateTime?
+  approvedAt        DateTime?
+  declinedAt        DateTime?
+
+  approvalSignature String?        @db.Text // Base64 signature image
+  declineReason     String?
+
+  notes             String?        @db.Text
+  terms             String?        @db.Text
+
+  publicToken       String         @unique @default(cuid()) // Secure token for public access
+
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   // Relations
-  job            Job            @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  customer       Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  invoices       Invoice[]
+  organization      Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  customer          Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  job               Job?           @relation(fields: [jobId], references: [id], onDelete: SetNull)
+  lineItems         EstimateLineItem[]
+  invoices          Invoice[]
 
+  @@unique([organizationId, number])
   @@index([organizationId])
   @@index([jobId])
   @@index([customerId])
   @@index([status])
+  @@index([publicToken])
+}
+
+model EstimateLineItem {
+  id             String   @id @default(cuid())
+  estimateId     String
+  description    String
+  quantity       Int      @default(100) // quantity * 100 for precision (e.g., 150 = 1.5)
+  unitPrice      Int      @default(0) // cents
+  total          Int      @default(0) // cents
+  sortOrder      Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  estimate       Estimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+
+  @@index([estimateId])
 }
 
 enum EstimateStatus {
   draft
   sent
   viewed
-  signed
+  approved
   declined
   expired
+  converted
+  voided
 }
 
 // ============================================
@@ -820,4 +856,46 @@ model QueuedSms {
   @@index([organizationId])
   @@index([processAfter, processedAt])
   @@index([attempts])
+}
+
+// ============================================
+// PUSH NOTIFICATIONS
+// ============================================
+
+model PushSubscription {
+  id         String   @id @default(cuid())
+  userId     String
+  endpoint   String   @unique
+  p256dh     String   // Public key for encryption
+  auth       String   // Auth secret for encryption
+  userAgent  String?
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
+
+  // Relations
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model NotificationPreference {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+
+  incomingCall        Boolean  @default(true)
+  missedCall          Boolean  @default(true)
+  newMessage          Boolean  @default(true)
+  jobAssigned         Boolean  @default(true)
+  jobUpdated          Boolean  @default(false)
+  appointmentReminder Boolean  @default(true)
+  paymentReceived     Boolean  @default(true)
+
+  quietHoursStart     String?  // "22:00" format
+  quietHoursEnd       String?  // "07:00" format
+
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  // Relations
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
