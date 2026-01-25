@@ -105,7 +105,7 @@ export async function PUT(request: Request) {
       );
     }
 
-    const body: NotificationPreferences = await request.json();
+    const body = await request.json() as NotificationPreferences;
 
     // Validate the structure
     if (!body.channels || !body.events || !body.quietHours) {

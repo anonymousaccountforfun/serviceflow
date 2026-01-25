@@ -72,8 +72,8 @@ export async function PUT(request: Request) {
       );
     }
 
-    const body = await request.json();
-    const currentSettings = (user.organization.settings as Record<string, any>) || {};
+    const body = await request.json() as Record<string, unknown>;
+    const currentSettings = (user.organization.settings as Record<string, unknown>) || {};
 
     // Build update data
     const updateData: Record<string, any> = {};

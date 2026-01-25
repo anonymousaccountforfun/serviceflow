@@ -140,7 +140,7 @@ class GoogleBusinessProfileService {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'unknown' }));
+      const errorData = await response.json().catch(() => ({ error: 'unknown' })) as { error?: string };
 
       // Check for specific error types
       if (errorData.error === 'invalid_grant') {
@@ -192,7 +192,8 @@ class GoogleBusinessProfileService {
           data: {
             accessToken: tokens.access_token,
             tokenExpiresAt: new Date(Date.now() + tokens.expires_in * 1000),
-            syncStatus: credential.syncStatus === 'error' ? 'pending' : credential.syncStatus,
+            // Keep existing status (we already threw on 'error' above)
+            syncStatus: credential.syncStatus,
             syncError: null,
           },
         });

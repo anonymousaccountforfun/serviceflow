@@ -5,7 +5,7 @@
  * them when quiet hours end. Uses the database as a simple queue.
  */
 
-import { prisma } from '@serviceflow/database';
+import { prisma, Prisma } from '@serviceflow/database';
 import { isQuietHours, TIMING } from '@serviceflow/shared';
 import { sms, SendSmsOptions } from './sms';
 
@@ -23,7 +23,7 @@ export interface QueuedSmsMessage {
   templateType?: string;
   senderType: 'ai' | 'user' | 'system';
   metadata?: Record<string, unknown>;
-  queuedAt: Date;
+  createdAt: Date;
   processAfter: Date;
   attempts: number;
   lastError?: string;
@@ -113,7 +113,7 @@ class SmsQueueService {
         message,
         templateType,
         senderType,
-        metadata: metadata as Record<string, unknown>,
+        metadata: (metadata ?? Prisma.JsonNull) as Prisma.InputJsonValue,
         processAfter,
         attempts: 0,
       },
@@ -144,7 +144,7 @@ class SmsQueueService {
           processedAt: null,
           attempts: { lt: 3 }, // Max 3 attempts
         },
-        orderBy: { queuedAt: 'asc' },
+        orderBy: { createdAt: 'asc' },
         take: 50,
       });
 

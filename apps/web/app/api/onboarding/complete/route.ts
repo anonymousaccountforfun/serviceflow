@@ -46,7 +46,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const data: OnboardingData = await request.json();
+    const data = await request.json() as OnboardingData;
 
     // Validate required fields
     if (!data.businessProfile?.businessName || !data.businessProfile?.serviceType) {

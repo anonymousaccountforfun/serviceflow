@@ -231,8 +231,10 @@ Customer history:
       throw new Error(`OpenAI API error: ${response.status} - ${JSON.stringify(error)}`);
     }
 
-    const data = await response.json();
-    return data.choices[0]?.message?.content || '';
+    const data = await response.json() as {
+      choices?: Array<{ message?: { content?: string } }>;
+    };
+    return data.choices?.[0]?.message?.content || '';
   }
 
   /**

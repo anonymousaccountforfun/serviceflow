@@ -561,10 +561,10 @@ export default function JobsPage() {
           </div>
 
           {/* Pagination */}
-          {meta && meta.totalPages > 1 && (
+          {meta && (meta.totalPages ?? 1) > 1 && (
             <div className="flex items-center justify-between pt-4">
               <p className="text-sm text-gray-500">
-                Showing {(page - 1) * meta.perPage + 1} to {Math.min(page * meta.perPage, meta.total)} of {meta.total}
+                Showing {(page - 1) * (meta.perPage ?? 20) + 1} to {Math.min(page * (meta.perPage ?? 20), meta.total ?? 0)} of {meta.total ?? 0}
               </p>
               <div className="flex items-center gap-2">
                 <button
@@ -576,7 +576,7 @@ export default function JobsPage() {
                 </button>
                 <button
                   onClick={() => setPage(page + 1)}
-                  disabled={page >= meta.totalPages}
+                  disabled={page >= (meta.totalPages ?? 1)}
                   className="px-4 py-2.5 text-sm font-semibold text-white bg-surface rounded-lg hover:bg-surface-light disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                 >
                   Next
