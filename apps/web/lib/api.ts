@@ -140,11 +140,12 @@ class ApiClient {
   }
 
   // Jobs
-  async getJobs(params?: { status?: string; customerId?: string; page?: number }) {
+  async getJobs(params?: { status?: string; customerId?: string; page?: number; limit?: number }) {
     const searchParams = new URLSearchParams();
     if (params?.status) searchParams.set('status', params.status);
     if (params?.customerId) searchParams.set('customerId', params.customerId);
     if (params?.page) searchParams.set('page', String(params.page));
+    if (params?.limit) searchParams.set('limit', String(params.limit));
     return this.request<any[]>('GET', `/api/jobs?${searchParams}`);
   }
 
