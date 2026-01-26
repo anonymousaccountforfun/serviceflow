@@ -1,36 +1,114 @@
 /**
  * Missed Call Handler
  *
- * Handles the call.missed event by sending a text-back message to the caller.
- * This is the core "missed call text-back" feature.
+ * Handles the call.missed event by enqueueing a delayed text-back job.
+ * The job queue ensures the text-back is sent even if the server restarts.
  */
 
 import { prisma } from '@serviceflow/database';
 import { events, DomainEvent, CallMissedEventData } from '../services/events';
+import { jobQueue, Job, JobPayload } from '../services/job-queue';
 import { sms } from '../services/sms';
 import { isBusinessHours, TIMING } from '@serviceflow/shared';
 import { logger } from '../lib/logger';
+
+// ============================================
+// JOB PAYLOAD TYPES
+// ============================================
+
+export interface MissedCallTextbackPayload extends JobPayload {
+  callId: string;
+  customerId: string;
+  from: string;
+}
+
+// ============================================
+// EVENT HANDLER (enqueues job)
+// ============================================
 
 /**
  * Register the missed call handler
  */
 export function registerMissedCallHandler(): void {
-  events.on('call.missed', handleMissedCall);
-  events.on('call.voicemail', handleMissedCall); // Also handle voicemails
+  // Register event handlers (enqueue jobs)
+  events.on('call.missed', handleMissedCallEvent);
+  events.on('call.voicemail', handleMissedCallEvent);
   logger.info('Missed call handler registered');
+
+  // Register job handler (processes jobs)
+  jobQueue.register<MissedCallTextbackPayload>('missed_call_textback', processMissedCallTextback);
+  logger.info('Missed call textback job handler registered');
 }
 
 /**
- * Handle a missed call by sending a text-back
+ * Handle missed call event by enqueueing a delayed job
  */
-async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promise<void> {
+async function handleMissedCallEvent(event: DomainEvent<CallMissedEventData>): Promise<void> {
   const { callId, customerId, from } = event.data;
   const { organizationId } = event;
 
-  logger.info('Processing missed call text-back', { callId });
+  logger.info('Enqueueing missed call text-back job', { callId });
 
   try {
-    // 1. Get the call with customer and organization data
+    // Verify call exists and has a customer
+    const call = await prisma.call.findUnique({
+      where: { id: callId },
+      select: { customerId: true, textBackSentAt: true },
+    });
+
+    if (!call) {
+      logger.error('Call not found', { callId });
+      return;
+    }
+
+    if (call.textBackSentAt) {
+      logger.debug('Text-back already sent', { callId });
+      return;
+    }
+
+    if (!call.customerId) {
+      logger.debug('No customer for call, cannot enqueue text-back', { callId });
+      return;
+    }
+
+    // Enqueue job with delay
+    // The delay prevents sending if customer calls back quickly
+    await jobQueue.enqueue<MissedCallTextbackPayload>({
+      type: 'missed_call_textback',
+      organizationId,
+      payload: {
+        callId,
+        customerId: call.customerId,
+        from,
+      },
+      delayMs: TIMING.MISSED_CALL_DELAY_MS,
+    });
+
+    logger.info('Missed call text-back job enqueued', {
+      callId,
+      delayMs: TIMING.MISSED_CALL_DELAY_MS,
+    });
+  } catch (error) {
+    logger.error('Error enqueueing missed call text-back', { callId, error });
+  }
+}
+
+// ============================================
+// JOB HANDLER (processes job)
+// ============================================
+
+/**
+ * Process the missed call text-back job
+ * This runs after the delay, checking if we should still send
+ */
+async function processMissedCallTextback(job: Job<MissedCallTextbackPayload>): Promise<void> {
+  const { callId, customerId } = job.payload;
+  const { organizationId } = job;
+
+  logger.info('Processing missed call text-back job', { callId, jobId: job.id });
+
+  try {
+    // Get the call with customer and organization data
     const call = await prisma.call.findUnique({
       where: { id: callId },
       include: {
@@ -40,74 +118,51 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
     });
 
     if (!call) {
-      logger.error('Call not found', { callId });
+      logger.error('Call not found during job processing', { callId });
       return;
     }
 
-    // 2. Check if text-back already sent
+    // Check if text-back was already sent (another job or manual send)
     if (call.textBackSentAt) {
-      logger.debug('Text-back already sent', { callId });
+      logger.debug('Text-back already sent, skipping job', { callId });
       return;
     }
 
-    // 3. Make sure we have a customer
     if (!call.customer) {
-      logger.debug('No customer for call, cannot send text-back', { callId });
+      logger.debug('No customer for call', { callId });
       return;
     }
 
-    // 4. Determine if we're in business hours
+    // Check if call was handled in the meantime
+    // Skip if: in_progress, completed (answered), or AI handled
+    const skipStatuses = ['in_progress', 'completed'];
+    if (
+      (call.status && skipStatuses.includes(call.status)) ||
+      call.aiHandled
+    ) {
+      logger.debug('Call was handled, skipping text-back', { callId, status: call.status });
+      return;
+    }
+
+    // Determine if we're in business hours
     const settings = call.organization.settings as any;
     const businessHours = settings?.businessHours;
     const inBusinessHours = businessHours
       ? isBusinessHours(businessHours, call.organization.timezone)
-      : true; // Default to business hours if not configured
+      : true;
 
-    // 5. Select the appropriate template
+    // Select the appropriate template
     const templateType = inBusinessHours
       ? 'missed_call_textback'
       : 'missed_call_after_hours';
 
-    // 6. Build variables for the template
+    // Build variables for the template
     const variables = {
       businessName: call.organization.name,
       customerName: call.customer.firstName,
     };
 
-    // 7. Wait the configured delay before sending (prevents sending if they call right back)
-    const delay = TIMING.MISSED_CALL_DELAY_MS;
-    await new Promise((resolve) => setTimeout(resolve, delay));
-
-    // 8. Re-check if call was answered or text-back was sent during delay
-    const refreshedCall = await prisma.call.findUnique({
-      where: { id: callId },
-      select: { status: true, textBackSentAt: true, aiHandled: true },
-    });
-
-    // Skip if:
-    // - Call is still in progress
-    // - Text-back was already sent
-    // - Call was answered by AI (aiHandled = true) - they already got help
-    // But ALLOW if status is voicemail, no_answer, busy, or missed
-    const skipStatuses = ['in_progress'];
-    const allowedStatuses = ['voicemail', 'no_answer', 'busy', 'missed', 'failed'];
-
-    if (
-      refreshedCall?.textBackSentAt ||
-      (refreshedCall?.status && skipStatuses.includes(refreshedCall.status)) ||
-      refreshedCall?.aiHandled
-    ) {
-      logger.debug('Call was handled or text-back already sent, skipping', { callId });
-      return;
-    }
-
-    // If call was completed without a recording, someone actually answered
-    if (refreshedCall?.status === 'completed') {
-      logger.debug('Call was answered, skipping text-back', { callId });
-      return;
-    }
-
-    // 9. Send the text-back
+    // Send the text-back
     const result = await sms.sendTemplated({
       organizationId,
       customerId: call.customer.id,
@@ -117,7 +172,7 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
     });
 
     if (result.success) {
-      // 10. Update call record with text-back info
+      // Update call record
       await prisma.call.update({
         where: { id: callId },
         data: {
@@ -126,13 +181,14 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
         },
       });
 
-      logger.info('Text-back sent', { callId, messageId: result.messageId });
+      logger.info('Text-back sent successfully', { callId, messageId: result.messageId });
     } else {
-      logger.error('Failed to send text-back', { callId, error: result.error });
+      // Throw to trigger retry
+      throw new Error(result.error?.message || 'Failed to send text-back');
     }
   } catch (error) {
-    logger.error('Error handling missed call', { callId, error });
-    // Don't throw - we don't want to break the event pipeline
+    logger.error('Error processing missed call text-back', { callId, error });
+    throw error; // Re-throw to trigger retry
   }
 }
 

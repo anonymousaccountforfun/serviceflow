@@ -859,6 +859,28 @@ model QueuedSms {
 }
 
 // ============================================
+// DELAYED JOBS (Job Queue)
+// ============================================
+
+model DelayedJob {
+  id             String    @id @default(cuid())
+  organizationId String
+  type           String    // Job type: "missed_call_textback", "review_request", etc.
+  payload        Json      // Job-specific data
+  processAfter   DateTime  // When to process this job
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(3)
+  lastError      String?
+  processedAt    DateTime?
+  createdAt      DateTime  @default(now())
+
+  @@index([organizationId])
+  @@index([type])
+  @@index([processAfter, processedAt])
+  @@index([attempts, maxAttempts])
+}
+
+// ============================================
 // PUSH NOTIFICATIONS
 // ============================================
 

@@ -44,6 +44,7 @@ import { registerAllHandlers } from './handlers';
 
 // Services
 import { smsQueue } from './services/sms-queue';
+import { jobQueue } from './services/job-queue';
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -51,9 +52,10 @@ const PORT = process.env.PORT || 3001;
 // Register event handlers
 registerAllHandlers();
 
-// Start SMS queue processor (skip in test environment)
+// Start queue processors (skip in test environment)
 if (process.env.NODE_ENV !== 'test') {
   smsQueue.start();
+  jobQueue.start();
 }
 
 // Sentry request handling (must be first)
