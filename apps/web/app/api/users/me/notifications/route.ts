@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 interface NotificationPreferences {
   channels: {
@@ -74,7 +75,7 @@ export async function GET() {
 
     return NextResponse.json(notifications);
   } catch (error) {
-    console.error('Get notifications error:', error);
+    logger.error('Get notifications error', error);
     return NextResponse.json(
       { error: 'Failed to get notification preferences' },
       { status: 500 }
@@ -136,7 +137,7 @@ export async function PUT(request: Request) {
 
     return NextResponse.json(body);
   } catch (error) {
-    console.error('Update notifications error:', error);
+    logger.error('Update notifications error', error);
     return NextResponse.json(
       { error: 'Failed to update notification preferences' },
       { status: 500 }

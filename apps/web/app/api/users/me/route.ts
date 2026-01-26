@@ -1,6 +1,7 @@
 import { auth, clerkClient } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 // GET /api/users/me - Get current user profile
 export async function GET() {
@@ -39,7 +40,7 @@ export async function GET() {
       },
     });
   } catch (error) {
-    console.error('Get user error:', error);
+    logger.error('Get user error', error);
     return NextResponse.json(
       { error: 'Failed to get user' },
       { status: 500 }
@@ -107,7 +108,7 @@ export async function PATCH(request: Request) {
       avatarUrl: updatedUser.avatarUrl,
     });
   } catch (error) {
-    console.error('Update user error:', error);
+    logger.error('Update user error', error);
     return NextResponse.json(
       { error: 'Failed to update user' },
       { status: 500 }
@@ -162,12 +163,12 @@ export async function DELETE() {
       await clerkClient.users.deleteUser(clerkId);
     } catch (clerkError) {
       // Log but don't fail - the database record is already deleted
-      console.error('Failed to delete user from Clerk:', clerkError);
+      logger.error('Failed to delete user from Clerk', clerkError);
     }
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Delete user error:', error);
+    logger.error('Delete user error', error);
     return NextResponse.json(
       { error: 'Failed to delete user' },
       { status: 500 }

@@ -8,6 +8,7 @@
 import { prisma, Prisma } from '@serviceflow/database';
 import { isQuietHours, TIMING } from '@serviceflow/shared';
 import { sms, SendSmsOptions } from './sms';
+import { logger } from '../lib/logger';
 
 // ============================================
 // TYPES
@@ -46,14 +47,14 @@ class SmsQueueService {
       return; // Already running
     }
 
-    console.log('📬 SMS queue processor started');
+    logger.info('SMS queue processor started');
 
     // Process immediately on start
-    this.processQueue().catch(console.error);
+    this.processQueue().catch((err) => logger.error('Error processing queue', err));
 
     // Then process every minute
     this.processingInterval = setInterval(() => {
-      this.processQueue().catch(console.error);
+      this.processQueue().catch((err) => logger.error('Error processing queue', err));
     }, 60000); // Every minute
   }
 
@@ -64,7 +65,7 @@ class SmsQueueService {
     if (this.processingInterval) {
       clearInterval(this.processingInterval);
       this.processingInterval = null;
-      console.log('📬 SMS queue processor stopped');
+      logger.info('SMS queue processor stopped');
     }
   }
 
@@ -119,7 +120,7 @@ class SmsQueueService {
       },
     });
 
-    console.log(`📬 SMS queued for delivery at ${processAfter.toISOString()}: ${queuedMessage.id}`);
+    logger.info('SMS queued for delivery', { queuedMessageId: queuedMessage.id, processAfter: processAfter.toISOString() });
 
     return queuedMessage.id;
   }
@@ -152,7 +153,7 @@ class SmsQueueService {
         return 0;
       }
 
-      console.log(`📬 Processing ${queuedMessages.length} queued SMS messages`);
+      logger.info('Processing queued SMS messages', { count: queuedMessages.length });
 
       for (const queued of queuedMessages) {
         try {
@@ -203,7 +204,7 @@ class SmsQueueService {
             });
 
             processedCount++;
-            console.log(`✅ Queued SMS sent: ${queued.id} -> ${result.twilioSid}`);
+            logger.info('Queued SMS sent', { queuedId: queued.id, twilioSid: result.twilioSid });
           } else {
             // Record failure
             await prisma.queuedSms.update({
@@ -214,7 +215,7 @@ class SmsQueueService {
               },
             });
 
-            console.error(`❌ Queued SMS failed: ${queued.id} - ${result.error?.message}`);
+            logger.error('Queued SMS failed', { queuedId: queued.id, error: result.error?.message });
           }
         } catch (error: unknown) {
           const message = error instanceof Error ? error.message : 'Unknown error';
@@ -227,7 +228,7 @@ class SmsQueueService {
             },
           });
 
-          console.error(`❌ Error processing queued SMS ${queued.id}:`, error);
+          logger.error('Error processing queued SMS', { queuedId: queued.id, error });
         }
       }
     } finally {
@@ -282,7 +283,7 @@ class SmsQueueService {
     });
 
     if (result.count > 0) {
-      console.log(`🧹 Cleaned up ${result.count} old queued SMS records`);
+      logger.info('Cleaned up old queued SMS records', { count: result.count });
     }
 
     return result.count;

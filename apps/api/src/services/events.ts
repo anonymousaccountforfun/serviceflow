@@ -7,6 +7,7 @@
 
 import { prisma } from '@serviceflow/database';
 import { EventEmitter } from 'events';
+import { logger } from '../lib/logger';
 
 // ============================================
 // EVENT TYPES
@@ -150,12 +151,12 @@ class EventService {
       },
     });
 
-    console.log(`📣 Event emitted: ${event.type} (${savedEvent.id})`);
+    logger.info('Event emitted', { type: event.type, eventId: savedEvent.id });
 
     // Trigger handlers asynchronously (fire and forget for now)
     // In production, use a job queue for reliability
     this.processHandlers(event.type, { ...event, id: savedEvent.id }).catch((err) => {
-      console.error(`Error processing handlers for ${event.type}:`, err);
+      logger.error('Error processing handlers', { eventType: event.type, error: err });
     });
 
     return savedEvent.id;
@@ -168,7 +169,7 @@ class EventService {
     const handlers = this.handlers.get(eventType) || [];
     handlers.push(handler as (event: DomainEvent) => Promise<void>);
     this.handlers.set(eventType, handlers);
-    console.log(`📌 Handler registered for: ${eventType}`);
+    logger.debug('Handler registered', { eventType });
   }
 
   /**
@@ -193,7 +194,7 @@ class EventService {
       try {
         await handler(event);
       } catch (error) {
-        console.error(`Handler error for ${eventType}:`, error);
+        logger.error('Handler error', { eventType, error });
         // In production, log to error tracking service
       }
     }
@@ -225,7 +226,7 @@ class EventService {
       orderBy: { createdAt: 'asc' },
     });
 
-    console.log(`🔄 Replaying ${events.length} events from ${fromDate.toISOString()}`);
+    logger.info('Replaying events', { count: events.length, fromDate: fromDate.toISOString() });
 
     for (const event of events) {
       await this.processHandlers(event.type as DomainEventType, {

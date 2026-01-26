@@ -6,6 +6,7 @@
  */
 
 import { prisma } from '@serviceflow/database';
+import { logger } from '../lib/logger';
 
 // ============================================
 // TYPES
@@ -64,7 +65,7 @@ class AISmsService {
     try {
       // 1. Check if AI is configured
       if (!this.isConfigured()) {
-        console.log('🤖 [MOCK] AI response generation (OpenAI not configured)');
+        logger.info('MOCK AI response generation (OpenAI not configured)');
         return this.generateMockResponse(customerMessage);
       }
 
@@ -90,7 +91,7 @@ class AISmsService {
         response: processedResponse,
       };
     } catch (error: unknown) {
-      console.error('AI SMS generation error:', error);
+      logger.error('AI SMS generation error', error);
       const message = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,

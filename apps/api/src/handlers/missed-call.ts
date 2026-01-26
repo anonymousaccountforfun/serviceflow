@@ -9,6 +9,7 @@ import { prisma } from '@serviceflow/database';
 import { events, DomainEvent, CallMissedEventData } from '../services/events';
 import { sms } from '../services/sms';
 import { isBusinessHours, TIMING } from '@serviceflow/shared';
+import { logger } from '../lib/logger';
 
 /**
  * Register the missed call handler
@@ -16,7 +17,7 @@ import { isBusinessHours, TIMING } from '@serviceflow/shared';
 export function registerMissedCallHandler(): void {
   events.on('call.missed', handleMissedCall);
   events.on('call.voicemail', handleMissedCall); // Also handle voicemails
-  console.log('✅ Missed call handler registered');
+  logger.info('Missed call handler registered');
 }
 
 /**
@@ -26,7 +27,7 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
   const { callId, customerId, from } = event.data;
   const { organizationId } = event;
 
-  console.log(`📱 Processing missed call text-back for call ${callId}`);
+  logger.info('Processing missed call text-back', { callId });
 
   try {
     // 1. Get the call with customer and organization data
@@ -39,19 +40,19 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
     });
 
     if (!call) {
-      console.error(`Call not found: ${callId}`);
+      logger.error('Call not found', { callId });
       return;
     }
 
     // 2. Check if text-back already sent
     if (call.textBackSentAt) {
-      console.log(`Text-back already sent for call ${callId}`);
+      logger.debug('Text-back already sent', { callId });
       return;
     }
 
     // 3. Make sure we have a customer
     if (!call.customer) {
-      console.log(`No customer for call ${callId}, cannot send text-back`);
+      logger.debug('No customer for call, cannot send text-back', { callId });
       return;
     }
 
@@ -96,13 +97,13 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
       (refreshedCall?.status && skipStatuses.includes(refreshedCall.status)) ||
       refreshedCall?.aiHandled
     ) {
-      console.log(`Call ${callId} was handled or text-back already sent, skipping`);
+      logger.debug('Call was handled or text-back already sent, skipping', { callId });
       return;
     }
 
     // If call was completed without a recording, someone actually answered
     if (refreshedCall?.status === 'completed') {
-      console.log(`Call ${callId} was answered (completed), skipping text-back`);
+      logger.debug('Call was answered, skipping text-back', { callId });
       return;
     }
 
@@ -125,12 +126,12 @@ async function handleMissedCall(event: DomainEvent<CallMissedEventData>): Promis
         },
       });
 
-      console.log(`✅ Text-back sent for call ${callId}: ${result.messageId}`);
+      logger.info('Text-back sent', { callId, messageId: result.messageId });
     } else {
-      console.error(`Failed to send text-back for call ${callId}:`, result.error);
+      logger.error('Failed to send text-back', { callId, error: result.error });
     }
   } catch (error) {
-    console.error(`Error handling missed call ${callId}:`, error);
+    logger.error('Error handling missed call', { callId, error });
     // Don't throw - we don't want to break the event pipeline
   }
 }

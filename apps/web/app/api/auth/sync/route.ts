@@ -1,6 +1,7 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 // Sync Clerk user to database
 // Creates User + Organization on first sign-in
@@ -133,7 +134,7 @@ export async function POST() {
     });
 
   } catch (error) {
-    console.error('Auth sync error:', error);
+    logger.error('Auth sync error', error);
     return NextResponse.json(
       { error: 'Failed to sync user' },
       { status: 500 }
@@ -185,7 +186,7 @@ export async function GET() {
     });
 
   } catch (error) {
-    console.error('Auth fetch error:', error);
+    logger.error('Auth fetch error', error);
     return NextResponse.json(
       { error: 'Failed to fetch user' },
       { status: 500 }

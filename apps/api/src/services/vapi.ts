@@ -8,6 +8,7 @@
  */
 
 import { prisma } from '@serviceflow/database';
+import { logger } from '../lib/logger';
 
 // ============================================
 // TYPES
@@ -341,7 +342,7 @@ class VapiService {
       },
     });
 
-    console.log(`🤖 Created Vapi assistant for ${org.name}: ${assistantId}`);
+    logger.info('Created Vapi assistant', { organizationName: org.name, assistantId });
     return assistantId;
   }
 
@@ -410,7 +411,7 @@ class VapiService {
     args: Record<string, unknown>,
     context: { organizationId: string; callId: string; customerId?: string }
   ): Promise<unknown> {
-    console.log(`🔧 Vapi tool call: ${toolName}`, args);
+    logger.info('Vapi tool call', { toolName, args });
 
     switch (toolName) {
       case 'book_appointment':
@@ -475,7 +476,7 @@ class VapiService {
         });
       }
 
-      console.log(`📅 AI booked appointment: ${job.id} for ${customer_name}`);
+      logger.info('AI booked appointment', { jobId: job.id, customerName: customer_name });
 
       return {
         success: true,
@@ -485,7 +486,7 @@ class VapiService {
         jobId: job.id,
       };
     } catch (error) {
-      console.error('Error booking appointment:', error);
+      logger.error('Error booking appointment', error);
       return {
         success: false,
         message: "I'm having trouble booking that right now. Let me take your information and have someone call you back.",
@@ -518,7 +519,7 @@ class VapiService {
     args: Record<string, unknown>,
     context: { organizationId: string; callId: string }
   ): Promise<{ success: boolean; message: string }> {
-    console.log(`📞 Transfer requested: ${args.reason}`);
+    logger.info('Transfer requested', { reason: args.reason });
 
     // In production, this would trigger an actual transfer
     // For now, we'll just note it

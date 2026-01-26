@@ -13,6 +13,7 @@ import { prisma } from '@serviceflow/database';
 import { interpolate, isQuietHours, TIMING } from '@serviceflow/shared';
 import { events, SmsSentEventData } from './events';
 import { findOrCreateConversation, updateLastMessageTime } from './conversation';
+import { logger } from '../lib/logger';
 
 // ============================================
 // TYPES
@@ -106,8 +107,8 @@ class SmsService {
     try {
       // 0. Check if Twilio is configured
       if (!this.isConfigured()) {
-        console.log(`📱 [MOCK] SMS to ${to}: ${message.substring(0, 50)}...`);
-        console.log(`   (Twilio not configured - set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN to send real SMS)`);
+        logger.info('MOCK SMS sent', { to, messagePreview: message.substring(0, 50) });
+        logger.warn('Twilio not configured - set TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN');
 
         // Still create conversation and message records for testing
         let activeConversationId = conversationId;
@@ -146,7 +147,7 @@ class SmsService {
       // 1. Check opt-out status
       const isOptedOut = await this.isOptedOut(organizationId, to);
       if (isOptedOut) {
-        console.log(`📵 SMS blocked - opted out: ${to}`);
+        logger.debug('SMS blocked - customer opted out', { to });
         return {
           success: false,
           error: { code: 'OPTED_OUT', message: 'Recipient has opted out of SMS' },
@@ -166,7 +167,7 @@ class SmsService {
           const quietEnd = settings?.aiSettings?.quietHoursEnd || TIMING.QUIET_HOURS_END;
 
           if (isQuietHours(new Date(), quietStart, quietEnd, org.timezone)) {
-            console.log(`🌙 SMS queued for quiet hours: ${to}`);
+            logger.debug('SMS queued for quiet hours', { to });
             // Queue for later delivery using the SMS queue service
             const { smsQueue } = await import('./sms-queue.js');
             const queuedId = await smsQueue.queue({
@@ -195,7 +196,7 @@ class SmsService {
       });
 
       if (!phoneNumber) {
-        console.error(`No phone number for org: ${organizationId}`);
+        logger.error('No phone number for organization', { organizationId });
         return {
           success: false,
           error: { code: 'NO_PHONE', message: 'No active phone number for organization' },
@@ -210,7 +211,7 @@ class SmsService {
         statusCallback: `${process.env.API_URL}/webhooks/twilio/sms/status`,
       });
 
-      console.log(`📤 SMS sent: ${twilioMessage.sid} -> ${to}`);
+      logger.info('SMS sent', { twilioSid: twilioMessage.sid, to });
 
       // 5. Create or find conversation (atomic to prevent race conditions)
       let activeConversationId = conversationId;
@@ -263,7 +264,7 @@ class SmsService {
         twilioSid: twilioMessage.sid,
       };
     } catch (error: any) {
-      console.error('SMS send error:', error);
+      logger.error('SMS send error', error);
 
       // Handle specific Twilio errors
       if (error.code === 21211) {
@@ -312,7 +313,7 @@ class SmsService {
     });
 
     if (!template) {
-      console.error(`No template found: ${templateType}`);
+      logger.error('Template not found', { templateType });
       return {
         success: false,
         error: { code: 'NO_TEMPLATE', message: `Template not found: ${templateType}` },
@@ -364,7 +365,7 @@ class SmsService {
         source,
       },
     });
-    console.log(`🚫 Opt-out recorded: ${phone} (${source})`);
+    logger.info('Opt-out recorded', { phone, source });
   }
 
   /**
@@ -374,7 +375,7 @@ class SmsService {
     await prisma.smsOptOut.deleteMany({
       where: { organizationId, phone },
     });
-    console.log(`✅ Opt-out removed: ${phone}`);
+    logger.info('Opt-out removed', { phone });
   }
 
   /**

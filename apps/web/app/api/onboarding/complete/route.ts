@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 interface OnboardingData {
   businessProfile: {
@@ -103,7 +104,7 @@ export async function POST(request: Request) {
     });
 
   } catch (error) {
-    console.error('Onboarding error:', error);
+    logger.error('Onboarding error', error);
     return NextResponse.json(
       { error: 'Failed to complete onboarding' },
       { status: 500 }

@@ -11,6 +11,7 @@ import { events, DomainEvent, SmsReceivedEventData } from '../services/events';
 import { sms } from '../services/sms';
 import { aiSms } from '../services/ai-sms';
 import { isQuietHours, TIMING } from '@serviceflow/shared';
+import { logger } from '../lib/logger';
 
 // Delay before sending AI response (allows for quick follow-up messages)
 const AI_RESPONSE_DELAY_MS = 3000;
@@ -20,7 +21,7 @@ const AI_RESPONSE_DELAY_MS = 3000;
  */
 export function registerSmsAIResponseHandler(): void {
   events.on('sms.received', handleSmsReceived);
-  console.log('✅ SMS AI response handler registered');
+  logger.info('SMS AI response handler registered');
 }
 
 /**
@@ -30,13 +31,13 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
   const { messageId, conversationId, customerId, content, from } = event.data;
   const { organizationId } = event;
 
-  console.log(`🤖 Processing AI response for message ${messageId}`);
+  logger.info('Processing AI response', { messageId });
 
   try {
     // 1. Check if AI responses are enabled for this organization
     const shouldRespond = await aiSms.shouldRespond(organizationId);
     if (!shouldRespond.enabled) {
-      console.log(`AI response skipped: ${shouldRespond.reason}`);
+      logger.debug('AI response skipped', { reason: shouldRespond.reason });
       return;
     }
 
@@ -47,7 +48,7 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
     });
 
     if (!org) {
-      console.error(`Organization not found: ${organizationId}`);
+      logger.error('Organization not found', { organizationId });
       return;
     }
 
@@ -59,7 +60,7 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
     const quietEnd = (aiSettings.quietHoursEnd as string) || TIMING.QUIET_HOURS_END;
 
     if (isQuietHours(new Date(), quietStart, quietEnd, org.timezone)) {
-      console.log(`🌙 AI response skipped - quiet hours for message ${messageId}`);
+      logger.debug('AI response skipped - quiet hours', { messageId });
       // Queue for later delivery will be handled by Task #13
       await prisma.message.update({
         where: { id: messageId },
@@ -85,7 +86,7 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
     });
 
     if (recentAIMessage) {
-      console.log(`AI response skipped - recent AI message exists for conversation ${conversationId}`);
+      logger.debug('AI response skipped - recent AI message exists', { conversationId });
       return;
     }
 
@@ -99,12 +100,12 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
     });
 
     if (conversation?.assignedToId) {
-      console.log(`AI response skipped - conversation ${conversationId} claimed by human`);
+      logger.debug('AI response skipped - conversation claimed by human', { conversationId });
       return;
     }
 
     if (conversation?.status === 'resolved') {
-      console.log(`AI response skipped - conversation ${conversationId} already resolved`);
+      logger.debug('AI response skipped - conversation already resolved', { conversationId });
       return;
     }
 
@@ -125,7 +126,7 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
       : content;
 
     // 8. Generate AI response
-    console.log(`🤖 Generating AI response for conversation ${conversationId}`);
+    logger.info('Generating AI response', { conversationId });
     const aiResult = await aiSms.generateResponse({
       organizationId,
       customerId,
@@ -134,7 +135,7 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
     });
 
     if (!aiResult.success || !aiResult.response) {
-      console.error(`AI response generation failed:`, aiResult.error);
+      logger.error('AI response generation failed', { error: aiResult.error });
       return;
     }
 
@@ -145,7 +146,7 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
     });
 
     if (!customer?.phone) {
-      console.error(`Customer phone not found: ${customerId}`);
+      logger.error('Customer phone not found', { customerId });
       return;
     }
 
@@ -173,12 +174,12 @@ async function handleSmsReceived(event: DomainEvent<SmsReceivedEventData>): Prom
         },
       });
 
-      console.log(`✅ AI response sent for message ${messageId}: ${sendResult.messageId}`);
+      logger.info('AI response sent', { messageId, sentMessageId: sendResult.messageId });
     } else {
-      console.error(`Failed to send AI response:`, sendResult.error);
+      logger.error('Failed to send AI response', { error: sendResult.error });
     }
   } catch (error) {
-    console.error(`Error handling AI response for message ${messageId}:`, error);
+    logger.error('Error handling AI response', { messageId, error });
     // Don't throw - we don't want to break the event pipeline
   }
 }

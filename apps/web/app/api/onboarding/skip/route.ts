@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 /**
  * Skip onboarding endpoint
@@ -52,7 +53,7 @@ export async function POST() {
     });
 
   } catch (error) {
-    console.error('Skip onboarding error:', error);
+    logger.error('Skip onboarding error', error);
     return NextResponse.json(
       { error: 'Failed to skip onboarding' },
       { status: 500 }

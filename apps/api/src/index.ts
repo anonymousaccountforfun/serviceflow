@@ -16,7 +16,7 @@ initEnv();
 // Middleware
 import { requireAuth, optionalAuth } from './middleware/auth';
 import { generalLimiter, strictLimiter, webhookLimiter } from './middleware/rate-limit';
-import { requestLogger } from './lib/logger';
+import { requestLogger, logger } from './lib/logger';
 
 // Routes
 import healthRoutes from './routes/health';
@@ -134,8 +134,7 @@ app.use((err: Error, req: express.Request, res: express.Response, next: express.
 // Start server (only when not running on Vercel or in test mode)
 if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
-    console.log(`🚀 API server running on port ${PORT}`);
-    console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info('API server running', { port: PORT, environment: process.env.NODE_ENV || 'development' });
   });
 }
 

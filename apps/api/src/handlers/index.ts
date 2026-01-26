@@ -7,13 +7,14 @@
 import { registerMissedCallHandler } from './missed-call';
 import { registerReviewRequestHandler } from './review-request';
 import { registerSmsAIResponseHandler } from './sms-ai-response';
+import { logger } from '../lib/logger';
 
 /**
  * Register all event handlers
  * Called on server startup
  */
 export function registerAllHandlers(): void {
-  console.log('📡 Registering event handlers...');
+  logger.info('Registering event handlers');
 
   registerMissedCallHandler();
   registerReviewRequestHandler();
@@ -24,7 +25,7 @@ export function registerAllHandlers(): void {
   // registerAppointmentReminderHandler();
   // registerPaymentReminderHandler();
 
-  console.log('📡 All event handlers registered');
+  logger.info('All event handlers registered');
 }
 
 export { registerMissedCallHandler, registerReviewRequestHandler, registerSmsAIResponseHandler };

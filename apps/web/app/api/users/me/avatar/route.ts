@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 // TODO: Move to cloud storage (Vercel Blob, S3, or Cloudinary) for production
 // Storing base64 in database is not ideal for performance at scale
@@ -73,7 +74,7 @@ export async function POST(request: Request) {
       avatarUrl: updatedUser.avatarUrl,
     });
   } catch (error) {
-    console.error('Avatar upload error:', error);
+    logger.error('Avatar upload error', error);
     return NextResponse.json(
       { error: { message: 'Failed to upload avatar' } },
       { status: 500 }
@@ -112,7 +113,7 @@ export async function DELETE() {
 
     return NextResponse.json({ success: true });
   } catch (error) {
-    console.error('Avatar delete error:', error);
+    logger.error('Avatar delete error', error);
     return NextResponse.json(
       { error: { message: 'Failed to delete avatar' } },
       { status: 500 }

@@ -6,6 +6,7 @@
  */
 
 import { Response } from 'express';
+import { logger } from '../lib/logger';
 
 /**
  * Error codes by category
@@ -164,7 +165,7 @@ export function asyncHandler(
 ) {
   return (req: any, res: Response, next: any) => {
     Promise.resolve(fn(req, res, next)).catch((error) => {
-      console.error('Unhandled route error:', error);
+      logger.error('Unhandled route error', error);
       errors.internal(res, error.message);
     });
   };

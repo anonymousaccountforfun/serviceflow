@@ -8,6 +8,7 @@
 import { prisma } from '@serviceflow/database';
 import { events, DomainEvent, JobCompletedEventData } from '../services/events';
 import { sms } from '../services/sms';
+import { logger } from '../lib/logger';
 
 // Configuration
 const REVIEW_REQUEST_DELAY_MS = 2 * 60 * 60 * 1000; // 2 hours
@@ -18,7 +19,7 @@ const REVIEW_REMINDER_DELAY_MS = 24 * 60 * 60 * 1000; // 24 hours after first re
  */
 export function registerReviewRequestHandler(): void {
   events.on<JobCompletedEventData>('job.completed', handleJobCompleted);
-  console.log('✅ Review request handler registered');
+  logger.info('Review request handler registered');
 }
 
 /**
@@ -28,7 +29,7 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
   const { jobId, customerId } = event.data;
   const { organizationId } = event;
 
-  console.log(`⭐ Processing review request for job ${jobId}`);
+  logger.info('Processing review request', { jobId });
 
   try {
     // 1. Get the job with customer and organization data
@@ -41,7 +42,7 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
     });
 
     if (!job || !job.customer) {
-      console.log(`Job or customer not found: ${jobId}`);
+      logger.warn('Job or customer not found', { jobId });
       return;
     }
 
@@ -51,7 +52,7 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
     });
 
     if (existingRequest) {
-      console.log(`Review request already exists for job ${jobId}`);
+      logger.debug('Review request already exists', { jobId });
       return;
     }
 
@@ -61,7 +62,7 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
 
     // Skip if review automation is disabled
     if (reviewSettings.enabled === false) {
-      console.log(`Review automation disabled for org ${organizationId}`);
+      logger.debug('Review automation disabled', { organizationId });
       return;
     }
 
@@ -75,14 +76,14 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
       },
     });
 
-    console.log(`📝 Review request created: ${reviewRequest.id}`);
+    logger.info('Review request created', { reviewRequestId: reviewRequest.id });
 
     // 5. Wait the configured delay before sending
     const delay = reviewSettings.delayMinutes
       ? reviewSettings.delayMinutes * 60 * 1000
       : REVIEW_REQUEST_DELAY_MS;
 
-    console.log(`⏳ Waiting ${delay / 1000 / 60} minutes before sending review request...`);
+    logger.debug('Waiting before sending review request', { delayMinutes: delay / 1000 / 60 });
     await new Promise((resolve) => setTimeout(resolve, delay));
 
     // 6. Re-check if request was canceled during delay
@@ -91,7 +92,7 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
     });
 
     if (!refreshedRequest || refreshedRequest.status !== 'pending') {
-      console.log(`Review request ${reviewRequest.id} was modified, skipping`);
+      logger.debug('Review request was modified, skipping', { reviewRequestId: reviewRequest.id });
       return;
     }
 
@@ -139,17 +140,17 @@ async function handleJobCompleted(event: DomainEvent<JobCompletedEventData>): Pr
         },
       });
 
-      console.log(`✅ Review request sent for job ${jobId}`);
+      logger.info('Review request sent', { jobId });
 
       // Schedule reminder if enabled
       if (reviewSettings.sendReminder !== false) {
         scheduleReviewReminder(reviewRequest.id, organizationId);
       }
     } else {
-      console.error(`Failed to send review request for job ${jobId}:`, result.error);
+      logger.error('Failed to send review request', { jobId, error: result.error });
     }
   } catch (error) {
-    console.error(`Error handling job completed ${jobId}:`, error);
+    logger.error('Error handling job completed', { jobId, error });
   }
 }
 
@@ -180,7 +181,7 @@ async function scheduleReviewReminder(reviewRequestId: string, organizationId: s
 
     // Only send reminder if still in 'sent' status (not clicked or completed)
     if (request.status !== 'sent') {
-      console.log(`Review request ${reviewRequestId} already ${request.status}, skipping reminder`);
+      logger.debug('Review request already processed, skipping reminder', { reviewRequestId, status: request.status });
       return;
     }
 
@@ -202,10 +203,10 @@ async function scheduleReviewReminder(reviewRequestId: string, organizationId: s
     });
 
     if (result.success) {
-      console.log(`✅ Review reminder sent for request ${reviewRequestId}`);
+      logger.info('Review reminder sent', { reviewRequestId });
     }
   } catch (error) {
-    console.error(`Error sending review reminder ${reviewRequestId}:`, error);
+    logger.error('Error sending review reminder', { reviewRequestId, error });
   }
 }
 

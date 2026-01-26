@@ -1,6 +1,7 @@
 import { auth } from '@clerk/nextjs/server';
 import { NextResponse } from 'next/server';
 import { prisma } from '@serviceflow/database';
+import { logger } from '@/lib/logger';
 
 // GET /api/organizations/settings - Get organization settings
 export async function GET() {
@@ -32,7 +33,7 @@ export async function GET() {
       settings: user.organization.settings,
     });
   } catch (error) {
-    console.error('Get organization settings error:', error);
+    logger.error('Get organization settings error', error);
     return NextResponse.json(
       { error: 'Failed to get settings' },
       { status: 500 }
@@ -123,7 +124,7 @@ export async function PUT(request: Request) {
       settings: updatedOrg.settings,
     });
   } catch (error) {
-    console.error('Update organization settings error:', error);
+    logger.error('Update organization settings error', error);
     return NextResponse.json(
       { error: 'Failed to update settings' },
       { status: 500 }
