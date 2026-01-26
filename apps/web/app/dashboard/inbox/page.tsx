@@ -1,7 +1,7 @@
 'use client';
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { Conversation, Message } from '../../../lib/types';
 import {
   MessageSquare,
@@ -11,10 +11,156 @@ import {
   CheckCircle,
   Archive,
   ArrowLeft,
-  Loader2
+  Loader2,
+  RefreshCw,
+  Wifi,
+  WifiOff
 } from 'lucide-react';
 import { format, formatDistanceToNow } from 'date-fns';
+import { toast } from 'sonner';
 import { api } from '../../../lib/api';
+import { SkeletonRow, SkeletonText, SkeletonAvatar, Skeleton } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Inbox } from 'lucide-react';
+
+type ConnectionStatus = 'connecting' | 'connected' | 'disconnected';
+
+function useWebSocket(url: string) {
+  const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 5;
+  const wasConnectedRef = useRef(false);
+
+  const connect = useCallback(() => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      return;
+    }
+
+    setStatus('connecting');
+
+    try {
+      const ws = new WebSocket(url);
+
+      ws.onopen = () => {
+        setStatus('connected');
+        reconnectAttemptsRef.current = 0;
+        if (wasConnectedRef.current) {
+          toast.success('Reconnected');
+        }
+        wasConnectedRef.current = true;
+      };
+
+      ws.onclose = () => {
+        setStatus('disconnected');
+        wsRef.current = null;
+
+        if (wasConnectedRef.current) {
+          toast.error('Connection lost. Trying to reconnect...');
+        }
+
+        // Auto-reconnect with exponential backoff
+        if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+          const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+          reconnectAttemptsRef.current++;
+          reconnectTimeoutRef.current = setTimeout(() => {
+            connect();
+          }, delay);
+        }
+      };
+
+      ws.onerror = () => {
+        // Error handling is done in onclose
+      };
+
+      wsRef.current = ws;
+    } catch {
+      setStatus('disconnected');
+    }
+  }, [url]);
+
+  const disconnect = useCallback(() => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    setStatus('disconnected');
+  }, []);
+
+  const reconnect = useCallback(() => {
+    reconnectAttemptsRef.current = 0;
+    disconnect();
+    connect();
+  }, [connect, disconnect]);
+
+  useEffect(() => {
+    connect();
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect]);
+
+  return { status, reconnect };
+}
+
+function ConnectionStatusBanner({ status, onReconnect }: { status: ConnectionStatus; onReconnect: () => void }) {
+  const statusConfig = {
+    connected: {
+      dotColor: 'bg-green-500',
+      text: 'Connected',
+      textColor: 'text-green-400',
+      bgColor: 'bg-green-500/10',
+      borderColor: 'border-green-500/20',
+      icon: Wifi,
+    },
+    disconnected: {
+      dotColor: 'bg-red-500',
+      text: 'Disconnected',
+      textColor: 'text-red-400',
+      bgColor: 'bg-red-500/10',
+      borderColor: 'border-red-500/20',
+      icon: WifiOff,
+    },
+    connecting: {
+      dotColor: 'bg-yellow-500',
+      text: 'Connecting...',
+      textColor: 'text-yellow-400',
+      bgColor: 'bg-yellow-500/10',
+      borderColor: 'border-yellow-500/20',
+      icon: Wifi,
+    },
+  };
+
+  const config = statusConfig[status];
+  const Icon = config.icon;
+
+  return (
+    <div className={`flex items-center justify-between px-4 py-2 rounded-lg border ${config.bgColor} ${config.borderColor}`}>
+      <div className="flex items-center gap-2">
+        <span className={`relative flex h-2.5 w-2.5`}>
+          <span className={`${status === 'connecting' ? 'animate-ping' : ''} absolute inline-flex h-full w-full rounded-full ${config.dotColor} opacity-75`}></span>
+          <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${config.dotColor}`}></span>
+        </span>
+        <Icon className={`w-4 h-4 ${config.textColor}`} />
+        <span className={`text-sm font-medium ${config.textColor}`}>{config.text}</span>
+      </div>
+      {status === 'disconnected' && (
+        <button
+          onClick={onReconnect}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" />
+          Reconnect
+        </button>
+      )}
+    </div>
+  );
+}
 
 function ConversationList({
   conversations,
@@ -31,8 +177,21 @@ function ConversationList({
     return (
       <div className="space-y-2 p-4">
         {[...Array(5)].map((_, i) => (
-          <div key={i} className="animate-pulse">
-            <div className="h-20 bg-navy-800 rounded-lg" />
+          <div key={i} className="p-4">
+            <div className="flex items-start gap-3">
+              <SkeletonAvatar size="md" />
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center justify-between">
+                  <Skeleton className="h-4 w-32" />
+                  <Skeleton className="h-3 w-16" />
+                </div>
+                <Skeleton className="h-3 w-3/4" />
+                <div className="flex items-center gap-2">
+                  <Skeleton className="h-5 w-14 rounded-full" />
+                  <Skeleton className="h-3 w-8" />
+                </div>
+              </div>
+            </div>
           </div>
         ))}
       </div>
@@ -41,14 +200,12 @@ function ConversationList({
 
   if (conversations.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 p-6 text-center">
-        <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mb-4">
-          <MessageSquare className="w-8 h-8 text-gray-500" />
-        </div>
-        <h3 className="text-lg font-semibold text-white mb-2">No conversations yet</h3>
-        <p className="text-gray-500 max-w-sm">
-          When customers text your business number, their conversations will appear here.
-        </p>
+      <div className="h-64 flex items-center justify-center">
+        <EmptyState
+          icon={Inbox}
+          title="No messages yet"
+          description="Customer texts and messages will appear here."
+        />
       </div>
     );
   }
@@ -156,17 +313,78 @@ function MessageThread({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full bg-navy-900">
-        <Loader2 className="w-8 h-8 animate-spin text-orange-500" />
+      <div className="flex flex-col h-full bg-navy-900">
+        {/* Skeleton Header */}
+        <div className="p-4 border-b border-white/10 bg-surface">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              {showBackButton && (
+                <Skeleton className="h-11 w-11 rounded-lg" />
+              )}
+              <SkeletonAvatar size="md" />
+              <div className="space-y-2">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-3 w-24" />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-11 w-24 rounded-lg" />
+              <Skeleton className="h-11 w-24 rounded-lg" />
+            </div>
+          </div>
+        </div>
+
+        {/* Skeleton Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Inbound message skeleton */}
+          <div className="flex justify-start">
+            <div className="max-w-[70%] rounded-2xl rounded-bl-md bg-surface px-4 py-3">
+              <SkeletonText lines={2} lastLineWidth="80%" gap="gap-2" />
+              <Skeleton className="h-3 w-16 mt-2" />
+            </div>
+          </div>
+          {/* Outbound message skeleton */}
+          <div className="flex justify-end">
+            <div className="max-w-[70%] rounded-2xl rounded-br-md bg-navy-700 px-4 py-3">
+              <SkeletonText lines={1} lastLineWidth="100%" gap="gap-2" />
+              <Skeleton className="h-3 w-16 mt-2" />
+            </div>
+          </div>
+          {/* Inbound message skeleton */}
+          <div className="flex justify-start">
+            <div className="max-w-[70%] rounded-2xl rounded-bl-md bg-surface px-4 py-3">
+              <SkeletonText lines={3} lastLineWidth="60%" gap="gap-2" />
+              <Skeleton className="h-3 w-16 mt-2" />
+            </div>
+          </div>
+          {/* Outbound message skeleton */}
+          <div className="flex justify-end">
+            <div className="max-w-[70%] rounded-2xl rounded-br-md bg-navy-700 px-4 py-3">
+              <SkeletonText lines={2} lastLineWidth="70%" gap="gap-2" />
+              <Skeleton className="h-3 w-16 mt-2" />
+            </div>
+          </div>
+        </div>
+
+        {/* Skeleton Input */}
+        <div className="p-4 border-t border-white/10 bg-surface">
+          <div className="flex items-center gap-3">
+            <Skeleton className="flex-1 h-12 rounded-full" />
+            <Skeleton className="h-12 w-12 rounded-full" />
+          </div>
+        </div>
       </div>
     );
   }
 
   if (!conversation) {
     return (
-      <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-navy-900">
-        <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
-        <p className="text-lg">Select a conversation</p>
+      <div className="flex items-center justify-center h-full bg-navy-900">
+        <EmptyState
+          icon={MessageSquare}
+          title="Select a conversation"
+          description="Choose a conversation from the list to view messages."
+        />
       </div>
     );
   }
@@ -296,6 +514,12 @@ export default function InboxPage() {
   const [mobileShowThread, setMobileShowThread] = useState(false);
   const queryClient = useQueryClient();
 
+  // WebSocket connection for real-time updates
+  const wsUrl = typeof window !== 'undefined'
+    ? `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/ws/inbox`
+    : 'ws://localhost:3000/api/ws/inbox';
+  const { status: connectionStatus, reconnect } = useWebSocket(wsUrl);
+
   const { data, isLoading } = useQuery({
     queryKey: ['conversations', statusFilter],
     queryFn: () => api.getConversations({ status: statusFilter || undefined }),
@@ -334,6 +558,9 @@ export default function InboxPage() {
 
   return (
     <div className="space-y-6">
+      {/* Connection Status Banner */}
+      <ConnectionStatusBanner status={connectionStatus} onReconnect={reconnect} />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
@@ -405,9 +632,12 @@ export default function InboxPage() {
                   showBackButton={false}
                 />
               ) : (
-                <div className="flex flex-col items-center justify-center h-full text-gray-500 bg-navy-900">
-                  <MessageSquare className="w-16 h-16 mb-4 opacity-50" />
-                  <p className="text-lg">Select a conversation to view</p>
+                <div className="flex items-center justify-center h-full bg-navy-900">
+                  <EmptyState
+                    icon={MessageSquare}
+                    title="Select a conversation"
+                    description="Choose a conversation from the list to view messages."
+                  />
                 </div>
               )}
             </div>

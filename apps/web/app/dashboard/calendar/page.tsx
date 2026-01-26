@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { format, addDays, startOfWeek, addWeeks, subWeeks } from 'date-fns';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 
 type ViewMode = 'day' | 'week';
@@ -55,18 +56,16 @@ function CreateAppointmentModal({
 
   const jobs = jobsData?.data || [];
 
-  const [error, setError] = useState<string | null>(null);
-
   const createMutation = useMutation({
     mutationFn: (data: any) => api.createAppointment(data),
     onSuccess: () => {
-      setError(null);
+      toast.success('Event saved');
       onSuccess();
       resetForm();
       onClose();
     },
     onError: (err: Error) => {
-      setError(err.message || 'Failed to create appointment');
+      toast.error('Failed to save event');
     },
   });
 
@@ -78,19 +77,23 @@ function CreateAppointmentModal({
     setNotes('');
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!jobId) return;
 
-    const start = new Date(scheduledAt);
-    const end = new Date(start.getTime() + parseInt(duration) * 60000);
+    try {
+      const start = new Date(scheduledAt);
+      const end = new Date(start.getTime() + parseInt(duration) * 60000);
 
-    createMutation.mutate({
-      jobId,
-      scheduledAt: start.toISOString(),
-      scheduledEndAt: end.toISOString(),
-      notes: notes.trim() || undefined,
-    });
+      createMutation.mutate({
+        jobId,
+        scheduledAt: start.toISOString(),
+        scheduledEndAt: end.toISOString(),
+        notes: notes.trim() || undefined,
+      });
+    } catch (error) {
+      toast.error('Failed to save event');
+    }
   };
 
   const selectJob = (job: any) => {
@@ -200,7 +203,8 @@ function CreateAppointmentModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 px-5 py-3 bg-navy-800 text-white rounded-lg font-semibold hover:bg-navy-700 transition-colors min-h-[44px]"
+              disabled={createMutation.isPending}
+              className="flex-1 px-5 py-3 bg-navy-800 text-white rounded-lg font-semibold hover:bg-navy-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
             >
               Cancel
             </button>

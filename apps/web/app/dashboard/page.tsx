@@ -23,6 +23,74 @@ import {
 import Link from 'next/link';
 import { format } from 'date-fns';
 import { api } from '../../lib/api';
+import { Skeleton, SkeletonCard, SkeletonRow } from '@/components/ui/skeleton';
+
+// Skeleton for CallStats component
+function CallStatsSkeleton() {
+  return (
+    <div className="bg-surface rounded-lg p-5 lg:p-6">
+      <div className="flex items-center justify-between mb-4">
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-5 w-5" />
+      </div>
+      <Skeleton className="h-16 lg:h-20 w-24 mb-6" />
+      <Skeleton className="h-3 w-full rounded-full mb-4" />
+      <div className="grid grid-cols-2 gap-4">
+        <div className="flex items-center gap-3">
+          <Skeleton className="w-12 h-12 rounded-lg" />
+          <div>
+            <Skeleton className="h-8 w-12 mb-1" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+        </div>
+        <div className="flex items-center gap-3">
+          <Skeleton className="w-12 h-12 rounded-lg" />
+          <div>
+            <Skeleton className="h-8 w-12 mb-1" />
+            <Skeleton className="h-3 w-16" />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Skeleton for RevenueBlock component
+function RevenueBlockSkeleton() {
+  return (
+    <div className="bg-surface rounded-lg p-5 lg:p-6">
+      <div className="flex items-center justify-between mb-3">
+        <Skeleton className="h-4 w-32" />
+        <Skeleton className="h-5 w-5" />
+      </div>
+      <div className="flex items-baseline gap-1">
+        <Skeleton className="h-8 w-6" />
+        <Skeleton className="h-16 lg:h-20 w-40" />
+      </div>
+      <div className="flex items-center gap-2 mt-4">
+        <Skeleton className="h-4 w-4" />
+        <Skeleton className="h-4 w-32" />
+      </div>
+    </div>
+  );
+}
+
+// Skeleton for ActionRequired section
+function ActionRequiredSkeleton() {
+  return (
+    <div className="bg-surface rounded-lg p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Skeleton className="h-5 w-5" />
+        <Skeleton className="h-4 w-28" />
+      </div>
+      <div className="space-y-3">
+        {[1, 2, 3].map((i) => (
+          <SkeletonRow key={i} showAvatar={false} textLines={2} />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 // Large metric display component
 function MetricBlock({
@@ -414,21 +482,33 @@ export default function DashboardPage() {
       {/* Primary Metrics Row */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         {/* Calls - Most important for immediate awareness */}
-        <CallStats answered={callsAnswered} missed={callsMissed} />
+        {isLoading ? (
+          <CallStatsSkeleton />
+        ) : (
+          <CallStats answered={callsAnswered} missed={callsMissed} />
+        )}
 
         {/* Revenue - The number they care about most */}
-        <RevenueBlock amount={revenue} trend={revenueTrend} />
+        {isLoading ? (
+          <RevenueBlockSkeleton />
+        ) : (
+          <RevenueBlock amount={revenue} trend={revenueTrend} />
+        )}
 
         {/* Jobs completed */}
-        <MetricBlock
-          label="Jobs Completed"
-          value={jobsCompleted}
-          subValue="this week"
-          trend={jobsTrend}
-          trendLabel="vs last week"
-          icon={CheckCircle2}
-          variant="success"
-        />
+        {isLoading ? (
+          <SkeletonCard />
+        ) : (
+          <MetricBlock
+            label="Jobs Completed"
+            value={jobsCompleted}
+            subValue="this week"
+            trend={jobsTrend}
+            trendLabel="vs last week"
+            icon={CheckCircle2}
+            variant="success"
+          />
+        )}
       </div>
 
       {/* Today's Schedule - appointments passed as prop to avoid separate API call */}
@@ -437,7 +517,9 @@ export default function DashboardPage() {
       {/* Secondary Row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Action Required */}
-        {pendingJobs.length > 0 ? (
+        {isLoading ? (
+          <ActionRequiredSkeleton />
+        ) : pendingJobs.length > 0 ? (
           <ActionRequired jobs={pendingJobs} />
         ) : (
           <div className="bg-surface rounded-lg p-5 lg:p-6">
@@ -452,18 +534,22 @@ export default function DashboardPage() {
         )}
 
         {/* New Customers */}
-        <MetricBlock
-          label="New Customers"
-          value={newCustomers}
-          subValue="this week"
-          trend={customersTrend}
-          trendLabel="vs last week"
-          icon={Users}
-        />
+        {isLoading ? (
+          <SkeletonCard />
+        ) : (
+          <MetricBlock
+            label="New Customers"
+            value={newCustomers}
+            subValue="this week"
+            trend={customersTrend}
+            trendLabel="vs last week"
+            icon={Users}
+          />
+        )}
       </div>
 
       {/* Empty State for new users */}
-      {!hasData && (
+      {!isLoading && !hasData && (
         <EmptyState
           icon={Briefcase}
           title="Ready to get started?"

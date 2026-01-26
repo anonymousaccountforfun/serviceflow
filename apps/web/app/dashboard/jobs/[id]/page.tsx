@@ -2,7 +2,7 @@
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   ArrowLeft,
   User,
@@ -22,7 +22,9 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import { toast } from 'sonner';
 import { api } from '../../../../lib/api';
+import { triggerFirstJobConfetti } from '../../../../lib/confetti';
 
 const statusConfig: Record<string, { bg: string; text: string; label: string }> = {
   lead: { bg: 'bg-gray-500/20', text: 'text-gray-400', label: 'Lead' },
@@ -78,6 +80,7 @@ export default function JobDetailPage() {
   const [editedDescription, setEditedDescription] = useState('');
   const [editedEstimatedValue, setEditedEstimatedValue] = useState('');
   const [editedActualValue, setEditedActualValue] = useState('');
+  const [pendingStatusChange, setPendingStatusChange] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ['job', jobId],
@@ -87,18 +90,60 @@ export default function JobDetailPage() {
 
   const job = data?.data;
 
-  const [updateError, setUpdateError] = useState<string | null>(null);
+  // Check if first job completion celebration should be shown
+  const checkAndCelebrateFirstJob = useCallback(async () => {
+    try {
+      // Check if first job celebration already happened by looking at localStorage
+      const celebrationKey = 'serviceflow_first_job_celebrated';
+      if (localStorage.getItem(celebrationKey)) {
+        return;
+      }
+
+      // Get completed jobs count - if this is the first one (count = 1), celebrate!
+      const response = await api.getJobs({ status: 'completed' });
+      const completedJobs = response.data || [];
+
+      if (completedJobs.length === 1) {
+        // This is the first completed job - celebrate!
+        triggerFirstJobConfetti();
+        toast.success('Congratulations on completing your first job!', {
+          duration: 5000,
+        });
+
+        // Mark celebration as done
+        localStorage.setItem(celebrationKey, 'true');
+
+        // Also update organization settings to persist across devices
+        try {
+          await api.updateOrganizationSettings({ firstJobCompleted: true });
+        } catch {
+          // Silently fail - localStorage is good enough for now
+        }
+      }
+    } catch (error) {
+      // Silently fail - don't block the main flow for celebration
+      console.error('Error checking first job celebration:', error);
+    }
+  }, []);
 
   const updateMutation = useMutation({
     mutationFn: (updates: any) => api.updateJob(jobId, updates),
-    onSuccess: () => {
-      setUpdateError(null);
+    onSuccess: async (_, variables) => {
+      toast.success('Job updated successfully');
       queryClient.invalidateQueries({ queryKey: ['job', jobId] });
       queryClient.invalidateQueries({ queryKey: ['jobs'] });
       setIsEditing(false);
+
+      // Check if status was changed to completed and the job wasn't already completed
+      if (variables.status === 'completed' && job?.status !== 'completed') {
+        await checkAndCelebrateFirstJob();
+      }
+
+      setPendingStatusChange(null);
     },
     onError: (err: Error) => {
-      setUpdateError(err.message || 'Failed to update job');
+      toast.error(err.message || 'Failed to update job');
+      setPendingStatusChange(null);
     },
   });
 
@@ -122,6 +167,7 @@ export default function JobDetailPage() {
   };
 
   const updateStatus = (newStatus: string) => {
+    setPendingStatusChange(newStatus);
     updateMutation.mutate({ status: newStatus });
   };
 

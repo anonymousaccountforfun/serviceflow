@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import {
   Users,
+  UserPlus,
   Search,
   Phone,
   Mail,
@@ -19,6 +20,8 @@ import { api } from '../../../lib/api';
 import type { Customer, CreateCustomerInput, CustomerSource } from '../../../lib/types';
 import { rules, validateForm, hasErrors, formatPhoneNumber, type ValidationErrors } from '../../../lib/validation';
 import { FormField, TextInput, FormErrorBanner } from '../../../components/ui/FormField';
+import { Skeleton, SkeletonAvatar } from '@/components/ui/skeleton';
+import { EmptyState } from '@/components/ui/empty-state';
 
 const sourceOptions: { value: CustomerSource; label: string }[] = [
   { value: 'referral', label: 'Referral' },
@@ -329,6 +332,41 @@ function CreateCustomerModal({
   );
 }
 
+function CustomerCardSkeleton() {
+  return (
+    <div className="bg-surface rounded-lg p-4">
+      <div className="flex items-start justify-between">
+        <div className="flex items-start gap-3">
+          <SkeletonAvatar size="lg" />
+          <div className="space-y-2">
+            <Skeleton className="h-4 w-32" />
+            <div className="flex items-center gap-1.5">
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Skeleton className="h-3 w-3" />
+              <Skeleton className="h-3 w-36" />
+            </div>
+          </div>
+        </div>
+        <Skeleton className="h-5 w-5" />
+      </div>
+
+      <div className="flex items-start gap-1.5 mt-3 pt-3 border-t border-white/5">
+        <Skeleton className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+        <Skeleton className="h-3 w-48" />
+      </div>
+
+      <div className="flex items-center gap-3 mt-3 pt-3 border-t border-white/5">
+        <Skeleton className="h-5 w-16 rounded" />
+        <Skeleton className="h-3 w-20" />
+        <Skeleton className="h-3 w-12" />
+      </div>
+    </div>
+  );
+}
+
 function CustomerCard({ customer }: { customer: Customer }) {
   const address = [customer.address?.street, customer.address?.city, customer.address?.state, customer.address?.zip].filter(Boolean).join(', ');
 
@@ -448,36 +486,24 @@ export default function CustomersPage() {
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-surface rounded-lg p-4 animate-pulse">
-              <div className="flex items-start gap-3">
-                <div className="w-12 h-12 rounded-full bg-navy-700" />
-                <div className="flex-1">
-                  <div className="h-4 bg-navy-700 rounded w-32 mb-2" />
-                  <div className="h-3 bg-navy-700 rounded w-24" />
-                </div>
-              </div>
-            </div>
+            <CustomerCardSkeleton key={i} />
           ))}
         </div>
       ) : customers.length === 0 ? (
-        <div className="bg-surface rounded-lg p-12 text-center">
-          <div className="w-16 h-16 rounded-xl bg-navy-800 flex items-center justify-center mx-auto mb-4">
-            <Users className="w-8 h-8 text-gray-500" />
-          </div>
-          <h3 className="text-lg font-semibold text-white mb-2">No customers found</h3>
-          <p className="text-gray-500 mb-6">
-            {search ? 'Try a different search term' : 'Add your first customer to get started'}
-          </p>
-          {!search && (
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="inline-flex items-center gap-2 px-5 py-3 bg-orange-500 text-white rounded-lg font-semibold hover:bg-orange-600 transition-colors min-h-[44px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500 focus-visible:ring-offset-2 focus-visible:ring-offset-navy-900"
-            >
-              <Plus className="w-4 h-4" />
-              Add First Customer
-            </button>
-          )}
-        </div>
+        search ? (
+          <EmptyState
+            icon={Users}
+            title="No customers found"
+            description="Try a different search term"
+          />
+        ) : (
+          <EmptyState
+            icon={UserPlus}
+            title="No customers yet"
+            description="Add your first customer to get started. Customers are also created automatically when they call."
+            action={{ label: "Add Customer", onClick: () => setShowCreateModal(true) }}
+          />
+        )
       ) : (
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

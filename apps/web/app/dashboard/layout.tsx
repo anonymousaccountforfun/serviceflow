@@ -20,6 +20,7 @@ import {
 import { useState } from 'react';
 import { Providers } from '../../lib/providers';
 import { ErrorBoundary } from '../../components/ErrorBoundary';
+import { PageTransition } from '../../components/page-transition';
 import { useCurrentUser, useAuthContext } from '../../lib/auth/context';
 
 const navItems = [
@@ -216,7 +217,9 @@ function DashboardContent({ children }: { children: React.ReactNode }) {
 
         {/* Page content */}
         <main id="main-content" className="flex-1 p-4 lg:p-6" tabIndex={-1}>
-          {children}
+          <PageTransition>
+            {children}
+          </PageTransition>
         </main>
       </div>
     </div>

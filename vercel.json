@@ -1,5 +1,5 @@
 {
+  "$schema": "https://openapi.vercel.sh/vercel.json",
   "installCommand": "pnpm install",
-  "buildCommand": "pnpm --filter @serviceflow/web build",
-  "outputDirectory": "apps/web/.next"
+  "buildCommand": "turbo run build --filter=@serviceflow/web"
 }

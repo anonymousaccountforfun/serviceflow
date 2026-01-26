@@ -41,6 +41,7 @@ export interface Organization {
 
 export interface OrganizationSettings {
   onboardingCompleted?: boolean;
+  firstJobCompleted?: boolean;
   businessHours?: BusinessHours;
   smsEnabled?: boolean;
   aiAssistantEnabled?: boolean;

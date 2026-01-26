@@ -1,6 +1,6 @@
 'use client';
 
-import { User, Building, Plug, Bell, CreditCard, ChevronRight, AlertCircle } from 'lucide-react';
+import { User, Building, Plug, Bell, CreditCard, ChevronRight, AlertCircle, Phone } from 'lucide-react';
 import Link from 'next/link';
 import { useCurrentUser } from '../../../lib/auth/context';
 
@@ -107,6 +107,17 @@ export default function SettingsPage() {
       summary: organization?.name || 'My Business',
       detail: businessHours,
       alert: !organization?.settings?.businessHours ? 'Set hours' : null,
+    },
+    {
+      title: 'Phone',
+      icon: Phone,
+      href: '/dashboard/settings/phone',
+      color: 'bg-teal-500/20 text-teal-400',
+      summary: organization?.settings?.phoneSetup?.phoneNumber
+        ? 'Number configured'
+        : 'No number set up',
+      detail: organization?.settings?.phoneSetup?.phoneNumber || 'Add a phone number',
+      alert: !organization?.settings?.phoneSetup?.phoneNumber ? 'Setup' : null,
     },
     {
       title: 'Integrations',

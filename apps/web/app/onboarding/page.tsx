@@ -17,6 +17,7 @@ import {
   Home,
 } from 'lucide-react';
 import { useAuthContext } from '../../lib/auth/context';
+import { toast } from 'sonner';
 
 // Step indicator component
 function StepIndicator({ currentStep, steps }: { currentStep: number; steps: { icon: any; label: string }[] }) {
@@ -212,12 +213,34 @@ function PhoneSetupStep({
 // Step 3: Business Hours
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 
+// Common timezones for dropdown
+const COMMON_TIMEZONES = [
+  { value: 'America/New_York', label: 'Eastern Time (ET)' },
+  { value: 'America/Chicago', label: 'Central Time (CT)' },
+  { value: 'America/Denver', label: 'Mountain Time (MT)' },
+  { value: 'America/Los_Angeles', label: 'Pacific Time (PT)' },
+  { value: 'America/Anchorage', label: 'Alaska Time (AKT)' },
+  { value: 'Pacific/Honolulu', label: 'Hawaii Time (HT)' },
+  { value: 'America/Phoenix', label: 'Arizona (MST)' },
+  { value: 'America/Puerto_Rico', label: 'Atlantic Time (AT)' },
+  { value: 'Europe/London', label: 'London (GMT/BST)' },
+  { value: 'Europe/Paris', label: 'Central European (CET)' },
+  { value: 'Europe/Berlin', label: 'Berlin (CET)' },
+  { value: 'Asia/Tokyo', label: 'Japan (JST)' },
+  { value: 'Asia/Shanghai', label: 'China (CST)' },
+  { value: 'Australia/Sydney', label: 'Sydney (AEST)' },
+];
+
 function BusinessHoursStep({
   data,
   onChange,
+  timezone,
+  onTimezoneChange,
 }: {
   data: { [key: string]: { open: string | null; close: string | null } };
   onChange: (data: { [key: string]: { open: string | null; close: string | null } }) => void;
+  timezone: string;
+  onTimezoneChange: (tz: string) => void;
 }) {
   const setPreset = (preset: 'weekdays' | 'everyday' | 'custom') => {
     if (preset === 'weekdays') {
@@ -248,11 +271,45 @@ function BusinessHoursStep({
     }
   };
 
+  // Get display label for current timezone
+  const getTimezoneLabel = (tz: string) => {
+    const found = COMMON_TIMEZONES.find((t) => t.value === tz);
+    return found ? found.label : tz;
+  };
+
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-2xl font-bold text-white mb-2">Set your business hours</h2>
         <p className="text-gray-400">We'll use this to customize AI responses.</p>
+      </div>
+
+      {/* Timezone selector */}
+      <div className="p-4 bg-navy-800 rounded-lg border border-white/10">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <Clock className="w-5 h-5 text-accent" />
+            <div>
+              <p className="text-sm font-medium text-gray-300">Timezone</p>
+              <p className="text-xs text-gray-500">Business hours will be shown in this timezone</p>
+            </div>
+          </div>
+          <select
+            value={timezone}
+            onChange={(e) => onTimezoneChange(e.target.value)}
+            className="px-3 py-2 bg-navy-900 border border-white/10 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+          >
+            {/* Show detected timezone first if not in common list */}
+            {!COMMON_TIMEZONES.some((t) => t.value === timezone) && (
+              <option value={timezone}>{timezone} (Detected)</option>
+            )}
+            {COMMON_TIMEZONES.map((tz) => (
+              <option key={tz.value} value={tz.value}>
+                {tz.label}{tz.value === timezone ? ' (Detected)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="flex gap-2 mb-4">
@@ -500,7 +557,7 @@ export default function OnboardingPage() {
         router.push('/dashboard');
       } catch (error) {
         console.error('Onboarding error:', error);
-        alert('Failed to complete setup. Please try again.');
+        toast.error('Failed to complete setup. Please try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -531,7 +588,7 @@ export default function OnboardingPage() {
       router.push('/dashboard');
     } catch (error) {
       console.error('Skip onboarding error:', error);
-      alert('Failed to skip setup. Please try again.');
+      toast.error('Failed to skip setup. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -562,7 +619,12 @@ export default function OnboardingPage() {
             <PhoneSetupStep data={phoneSetup} onChange={setPhoneSetup} />
           )}
           {currentStep === 2 && (
-            <BusinessHoursStep data={businessHours} onChange={setBusinessHours} />
+            <BusinessHoursStep
+              data={businessHours}
+              onChange={setBusinessHours}
+              timezone={detectedTimezone}
+              onTimezoneChange={setDetectedTimezone}
+            />
           )}
           {currentStep === 3 && (
             <AIPreviewStep

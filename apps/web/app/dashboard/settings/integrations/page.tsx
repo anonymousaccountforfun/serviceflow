@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   Phone,
@@ -13,11 +14,13 @@ import {
   Plus,
   Trash2,
   Search,
+  RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthContext } from '../../../../lib/auth/context';
 import { api } from '../../../../lib/api';
 import type { PhoneStatus, AvailablePhoneNumber } from '../../../../lib/types';
+import { toast } from 'sonner';
 
 type ConnectionStatus = 'connected' | 'error' | 'disconnected';
 
@@ -512,37 +515,163 @@ function PhoneNumberManager() {
   );
 }
 
+interface GoogleStatus {
+  connected: boolean;
+  requiresReauth?: boolean;
+  locationName?: string;
+  lastSyncAt?: string;
+  syncStatus?: string;
+  syncError?: string;
+}
+
 export default function IntegrationsSettingsPage() {
   const { organization, isLoading } = useAuthContext();
+  const searchParams = useSearchParams();
   const [isSyncing, setIsSyncing] = useState(false);
   const [isTesting, setIsTesting] = useState<string | null>(null);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [googleStatusData, setGoogleStatusData] = useState<GoogleStatus | null>(null);
+  const [isLoadingGoogleStatus, setIsLoadingGoogleStatus] = useState(true);
 
   const settings = organization?.settings || {};
 
-  // Google status - would check actual OAuth connection
-  const googleConnected = false; // Placeholder
+  // Fetch Google connection status on mount
+  useEffect(() => {
+    async function fetchGoogleStatus() {
+      try {
+        const response = await fetch('/api/google/status');
+        const data = await response.json();
+        if (data.success && data.data) {
+          setGoogleStatusData(data.data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch Google status:', error);
+      } finally {
+        setIsLoadingGoogleStatus(false);
+      }
+    }
+    fetchGoogleStatus();
+  }, []);
+
+  // Handle OAuth callback results from URL params
+  useEffect(() => {
+    const googleParam = searchParams.get('google');
+    const errorParam = searchParams.get('error');
+
+    if (googleParam === 'connected') {
+      toast.success('Google Business Profile connected successfully!');
+      // Refresh status
+      setIsLoadingGoogleStatus(true);
+      fetch('/api/google/status')
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) setGoogleStatusData(data.data);
+        })
+        .finally(() => setIsLoadingGoogleStatus(false));
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard/settings/integrations');
+    } else if (errorParam) {
+      toast.error(errorParam === 'access_denied'
+        ? 'Google connection was cancelled'
+        : 'Failed to connect Google account. Please try again.');
+      window.history.replaceState({}, '', '/dashboard/settings/integrations');
+    }
+  }, [searchParams]);
+
+  const googleConnected = googleStatusData?.connected ?? false;
   const googleStatus: ConnectionStatus = googleConnected ? 'connected' : 'disconnected';
 
   // Vapi status
   const vapiEnabled = settings.aiSettings?.voiceEnabled;
   const vapiStatus: ConnectionStatus = vapiEnabled ? 'connected' : 'disconnected';
 
-  const handleGoogleConnect = () => {
-    // Would initiate OAuth flow
-    alert('Google OAuth flow would start here');
+  const handleGoogleConnect = async () => {
+    setIsConnecting(true);
+    try {
+      const response = await fetch('/api/google/connect');
+      const data = await response.json();
+
+      if (!response.ok || !data.data?.authUrl) {
+        throw new Error(data.error?.message || 'Failed to get authorization URL');
+      }
+
+      // Open OAuth in popup or redirect
+      const width = 600;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+
+      const popup = window.open(
+        data.data.authUrl,
+        'Google OAuth',
+        `width=${width},height=${height},left=${left},top=${top},scrollbars=yes`
+      );
+
+      // If popup blocked, redirect instead
+      if (!popup || popup.closed) {
+        window.location.href = data.data.authUrl;
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to connect Google');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
   const handleGoogleSync = async () => {
     setIsSyncing(true);
-    await new Promise(r => setTimeout(r, 2000));
-    setIsSyncing(false);
+    try {
+      const response = await fetch('/api/google/reviews/sync', { method: 'POST' });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Sync failed');
+      }
+
+      toast.success(data.data?.message || 'Reviews synced successfully');
+
+      // Refresh status
+      const statusResponse = await fetch('/api/google/status');
+      const statusData = await statusResponse.json();
+      if (statusData.success) {
+        setGoogleStatusData(statusData.data);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to sync reviews');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const handleGoogleDisconnect = async () => {
+    if (!confirm('Are you sure you want to disconnect Google Business Profile? Your synced reviews will be kept.')) {
+      return;
+    }
+
+    setIsDisconnecting(true);
+    try {
+      const response = await fetch('/api/google/disconnect', { method: 'DELETE' });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Failed to disconnect');
+      }
+
+      toast.success('Google account disconnected');
+      setGoogleStatusData({ connected: false });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to disconnect');
+    } finally {
+      setIsDisconnecting(false);
+    }
   };
 
   const handleTestAI = async () => {
     setIsTesting('ai');
     await new Promise(r => setTimeout(r, 2000));
     setIsTesting(null);
-    alert('Test AI call initiated!');
+    toast.info('Test AI call initiated! Check your phone.');
   };
 
   if (isLoading) {
@@ -590,48 +719,61 @@ export default function IntegrationsSettingsPage() {
           <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
             Reviews
           </h2>
-          <IntegrationCard
-            name="Google Business Profile"
-            description="Connect to sync and respond to Google reviews automatically."
-            icon={
-              <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-            }
-            status={googleStatus}
-            statusText={googleConnected ? 'Connected' : 'Not Connected'}
-            stats={googleConnected ? [
-              { label: 'Reviews', value: '47' },
-              { label: 'Avg Rating', value: '4.8' },
-            ] : undefined}
-            actions={googleConnected ? [
-              {
-                label: isSyncing ? 'Syncing...' : 'Sync Now',
-                onClick: handleGoogleSync,
-              },
-              {
-                label: 'Disconnect',
-                onClick: () => {},
-                variant: 'danger',
-              },
-            ] : [
-              {
-                label: 'Connect Google',
-                onClick: handleGoogleConnect,
-                variant: 'primary',
-              },
-            ]}
-          >
-            {googleConnected && (
-              <div className="space-y-1">
-                <p className="text-white">Mike&apos;s Plumbing</p>
-                <p className="text-xs text-gray-500">Last synced: 2 hours ago</p>
+          {isLoadingGoogleStatus ? (
+            <div className="bg-surface rounded-xl p-5">
+              <div className="flex items-center gap-3">
+                <Loader2 className="w-5 h-5 text-gray-400 animate-spin" />
+                <span className="text-gray-400">Loading Google status...</span>
               </div>
-            )}
-          </IntegrationCard>
+            </div>
+          ) : (
+            <IntegrationCard
+              name="Google Business Profile"
+              description="Connect to sync and respond to Google reviews automatically."
+              icon={
+                <svg className="w-6 h-6" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                  <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                  <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                </svg>
+              }
+              status={googleStatus}
+              statusText={googleConnected ? 'Connected' : 'Not Connected'}
+              stats={undefined} // Reviews stats shown on Reviews page
+              actions={googleConnected ? [
+                {
+                  label: isSyncing ? 'Syncing...' : 'Sync Now',
+                  onClick: handleGoogleSync,
+                  disabled: isSyncing,
+                },
+                {
+                  label: isDisconnecting ? 'Disconnecting...' : 'Disconnect',
+                  onClick: handleGoogleDisconnect,
+                  variant: 'danger',
+                  disabled: isDisconnecting,
+                },
+              ] : [
+                {
+                  label: isConnecting ? 'Connecting...' : 'Connect Google',
+                  onClick: handleGoogleConnect,
+                  variant: 'primary',
+                  disabled: isConnecting,
+                },
+              ]}
+            >
+              {googleConnected && googleStatusData && (
+                <div className="space-y-1">
+                  <p className="text-white">{googleStatusData.locationName || 'Business Profile'}</p>
+                  <p className="text-xs text-gray-500">
+                    {googleStatusData.lastSyncAt
+                      ? `Last synced: ${new Date(googleStatusData.lastSyncAt).toLocaleString()}`
+                      : 'Not synced yet'}
+                  </p>
+                </div>
+              )}
+            </IntegrationCard>
+          )}
         </section>
 
         {/* AI Voice Section */}

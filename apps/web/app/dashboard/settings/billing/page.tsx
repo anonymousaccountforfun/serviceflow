@@ -1,6 +1,7 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
   Check,
@@ -8,9 +9,13 @@ import {
   Download,
   AlertCircle,
   Sparkles,
+  Loader2,
+  CheckCircle,
+  XCircle,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthContext } from '../../../../lib/auth/context';
+import { toast } from 'sonner';
 
 const PLANS = [
   {
@@ -98,10 +103,12 @@ function PlanCard({
   plan,
   isCurrentPlan,
   onSelect,
+  isLoading,
 }: {
   plan: typeof PLANS[0];
   isCurrentPlan: boolean;
   onSelect: () => void;
+  isLoading?: boolean;
 }) {
   return (
     <div
@@ -137,15 +144,16 @@ function PlanCard({
 
       <button
         onClick={onSelect}
-        disabled={isCurrentPlan}
+        disabled={isCurrentPlan || isLoading}
         className={`
-          w-full py-2.5 rounded-lg font-medium transition-colors
+          w-full py-2.5 rounded-lg font-medium transition-colors flex items-center justify-center gap-2
           ${isCurrentPlan
             ? 'bg-white/10 text-gray-400 cursor-not-allowed'
-            : 'bg-accent text-white hover:bg-accent/90'
+            : 'bg-accent text-white hover:bg-accent/90 disabled:opacity-50'
           }
         `}
       >
+        {isLoading && <Loader2 className="w-4 h-4 animate-spin" />}
         {isCurrentPlan ? 'Current Plan' : 'Upgrade'}
       </button>
     </div>
@@ -153,11 +161,30 @@ function PlanCard({
 }
 
 export default function BillingSettingsPage() {
-  const { organization, isLoading } = useAuthContext();
+  const { organization, isLoading, refetch } = useAuthContext();
+  const searchParams = useSearchParams();
   const [isUpgrading, setIsUpgrading] = useState(false);
+  const [isOpeningPortal, setIsOpeningPortal] = useState(false);
+  const [isCancelling, setIsCancelling] = useState(false);
 
   const currentTier = organization?.subscriptionTier || 'starter';
   const isTrialing = organization?.subscriptionStatus === 'trialing';
+
+  // Handle Stripe redirect results
+  useEffect(() => {
+    const success = searchParams.get('success');
+    const canceled = searchParams.get('canceled');
+
+    if (success === 'true') {
+      toast.success('Subscription activated successfully!');
+      refetch?.();
+      // Clean URL
+      window.history.replaceState({}, '', '/dashboard/settings/billing');
+    } else if (canceled === 'true') {
+      toast.info('Checkout was cancelled');
+      window.history.replaceState({}, '', '/dashboard/settings/billing');
+    }
+  }, [searchParams, refetch]);
 
   // Calculate trial days remaining
   const trialEndsAt = organization?.settings?.trialEndsAt;
@@ -181,14 +208,83 @@ export default function BillingSettingsPage() {
 
   const handleUpgrade = async (planId: string) => {
     setIsUpgrading(true);
-    // Would create Stripe checkout session
-    alert(`Stripe checkout for ${planId} plan would open here`);
-    setIsUpgrading(false);
+    try {
+      const response = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Failed to start checkout');
+      }
+
+      // Redirect to Stripe Checkout
+      if (data.data?.url) {
+        window.location.href = data.data.url;
+      } else {
+        throw new Error('No checkout URL received');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to start checkout');
+      setIsUpgrading(false);
+    }
   };
 
-  const handleManageBilling = () => {
-    // Would open Stripe portal
-    alert('Stripe billing portal would open here');
+  const handleManageBilling = async () => {
+    setIsOpeningPortal(true);
+    try {
+      const response = await fetch('/api/billing/portal', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Failed to open billing portal');
+      }
+
+      // Redirect to Stripe Portal
+      if (data.data?.url) {
+        window.location.href = data.data.url;
+      } else {
+        throw new Error('No portal URL received');
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to open billing portal');
+      setIsOpeningPortal(false);
+    }
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!confirm('Are you sure you want to cancel your subscription? You will lose access to premium features at the end of your billing period.')) {
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      const response = await fetch('/api/billing/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ immediately: false }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error?.message || 'Failed to cancel subscription');
+      }
+
+      toast.success('Subscription will be cancelled at the end of your billing period');
+      refetch?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Failed to cancel subscription');
+    } finally {
+      setIsCancelling(false);
+    }
   };
 
   if (isLoading) {
@@ -252,10 +348,12 @@ export default function BillingSettingsPage() {
             </div>
 
             <button
-              onClick={handleManageBilling}
-              className="mt-4 px-6 py-2.5 bg-accent text-white rounded-lg font-medium hover:bg-accent/90 transition-colors"
+              onClick={() => handleUpgrade('starter')}
+              disabled={isUpgrading}
+              className="mt-4 px-6 py-2.5 bg-accent text-white rounded-lg font-medium hover:bg-accent/90 transition-colors disabled:opacity-50 flex items-center gap-2"
             >
-              Add Payment Method
+              {isUpgrading && <Loader2 className="w-4 h-4 animate-spin" />}
+              Start Subscription
             </button>
           </div>
         ) : (
@@ -273,14 +371,18 @@ export default function BillingSettingsPage() {
               <div className="flex gap-3">
                 <button
                   onClick={handleManageBilling}
-                  className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+                  disabled={isOpeningPortal}
+                  className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
-                  Change Plan
+                  {isOpeningPortal && <Loader2 className="w-4 h-4 animate-spin" />}
+                  Manage Subscription
                 </button>
                 <button
-                  onClick={() => alert('Cancellation flow would start here')}
-                  className="px-4 py-2 text-gray-400 hover:text-red-400 transition-colors"
+                  onClick={handleCancelSubscription}
+                  disabled={isCancelling}
+                  className="px-4 py-2 text-gray-400 hover:text-red-400 transition-colors disabled:opacity-50 flex items-center gap-2"
                 >
+                  {isCancelling && <Loader2 className="w-4 h-4 animate-spin" />}
                   Cancel
                 </button>
               </div>
@@ -300,6 +402,7 @@ export default function BillingSettingsPage() {
                 plan={plan}
                 isCurrentPlan={currentTier === plan.id}
                 onSelect={() => handleUpgrade(plan.id)}
+                isLoading={isUpgrading}
               />
             ))}
           </div>

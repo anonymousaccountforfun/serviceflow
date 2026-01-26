@@ -38,6 +38,8 @@ import teamRoutes from './routes/team';
 import jobCompletionRoutes from './routes/job-completion';
 import pushRoutes from './routes/push';
 import aiRoutes from './routes/ai';
+import billingRoutes from './routes/billing';
+import paymentRoutes from './routes/payments';
 
 // Event handlers
 import { registerAllHandlers } from './handlers';
@@ -108,6 +110,10 @@ app.use('/api/team', generalLimiter, requireAuth, teamRoutes);
 app.use('/api/jobs', generalLimiter, requireAuth, jobCompletionRoutes); // Job completion extends jobs routes
 app.use('/api/push', generalLimiter, requireAuth, pushRoutes);
 app.use('/api/ai', generalLimiter, requireAuth, aiRoutes);
+app.use('/api/billing', generalLimiter, requireAuth, billingRoutes);
+
+// Public payment routes (for customers paying invoices - no auth required)
+app.use('/api/payments', generalLimiter, paymentRoutes);
 
 // Sentry error handler (must be before custom error handler)
 app.use(sentryErrorHandler());
