@@ -1,8 +1,8 @@
 /**
- * Sentry Client-side Configuration
+ * Sentry Client Configuration
  *
- * This file configures Sentry error tracking for the browser.
- * It is automatically loaded by @sentry/nextjs.
+ * This configures the Sentry SDK for the browser (client-side).
+ * Loaded automatically by @sentry/nextjs.
  */
 
 import * as Sentry from '@sentry/nextjs';
@@ -10,68 +10,49 @@ import * as Sentry from '@sentry/nextjs';
 Sentry.init({
   dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
 
-  // Environment
-  environment: process.env.NODE_ENV || 'development',
-
   // Only enable in production
   enabled: process.env.NODE_ENV === 'production',
 
-  // Performance monitoring sample rate
-  tracesSampleRate: 0.1,
+  // Performance Monitoring
+  tracesSampleRate: 0.1, // Sample 10% of transactions
 
-  // Session replay sample rate (captures user sessions for debugging)
-  replaysSessionSampleRate: 0.1,
-  replaysOnErrorSampleRate: 1.0,
+  // Session Replay
+  replaysSessionSampleRate: 0.1, // Sample 10% of sessions
+  replaysOnErrorSampleRate: 1.0, // Sample 100% of sessions with errors
 
   // Don't send PII
   sendDefaultPii: false,
 
-  // Ignore common non-actionable errors
+  // Filter errors
   ignoreErrors: [
+    // Common browser errors that aren't actionable
+    'ResizeObserver loop limit exceeded',
+    'ResizeObserver loop completed with undelivered notifications',
+    'Non-Error promise rejection captured',
     // Network errors
-    'Failed to fetch',
-    'NetworkError',
+    'Network request failed',
     'Load failed',
-    // User-triggered navigation
-    'ResizeObserver loop',
-    // Browser extensions
-    /^chrome-extension:\/\//,
-    /^moz-extension:\/\//,
-    // Third-party scripts
+    'Failed to fetch',
+    // Third-party script errors
     /^Script error\.?$/,
   ],
 
-  // Filter breadcrumbs
-  beforeBreadcrumb(breadcrumb) {
-    // Don't log console messages
-    if (breadcrumb.category === 'console') {
+  // Before sending an error
+  beforeSend(event, hint) {
+    // Filter out errors from browser extensions
+    const frames = event.exception?.values?.[0]?.stacktrace?.frames;
+    if (frames?.some(frame => frame.filename?.includes('extension://'))) {
       return null;
     }
-    return breadcrumb;
-  },
 
-  // Filter sensitive data
-  beforeSend(event) {
-    // Remove sensitive URL parameters
-    if (event.request?.query_string && typeof event.request.query_string === 'string') {
-      const sensitiveParams = ['token', 'key', 'secret', 'password'];
-      let queryString = event.request.query_string;
-      for (const param of sensitiveParams) {
-        if (queryString.includes(param)) {
-          queryString = queryString.replace(
-            new RegExp(`${param}=[^&]*`, 'gi'),
-            `${param}=[REDACTED]`
-          );
-        }
-      }
-      event.request.query_string = queryString;
-    }
     return event;
   },
 
   integrations: [
     Sentry.replayIntegration({
+      // Mask all text for privacy
       maskAllText: true,
+      // Block all media
       blockAllMedia: true,
     }),
   ],
