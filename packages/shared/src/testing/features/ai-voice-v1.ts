@@ -30,8 +30,9 @@ registry
       'buildSystemPrompt generates prompt with Tier 0/1/2 emergency handling',
     priority: 'P0',
     category: 'api',
-    status: 'written',
+    status: 'passing',
     testFile: 'apps/api/src/services/__tests__/vapi.test.ts',
+    verifiedAt: '2026-01-27T01:04:00Z',
     addedBy: 'claude',
   })
   .add({
@@ -42,8 +43,9 @@ registry
       'Greeting prepends recording disclosure when enabled in settings',
     priority: 'P0',
     category: 'api',
-    status: 'written',
+    status: 'passing',
     testFile: 'apps/api/src/services/__tests__/vapi.test.ts',
+    verifiedAt: '2026-01-27T01:04:00Z',
     addedBy: 'claude',
   })
   .add({
@@ -54,8 +56,9 @@ registry
       'Tool finds customer by phone and returns calls from last 7 days',
     priority: 'P1',
     category: 'api',
-    status: 'written',
+    status: 'passing',
     testFile: 'apps/api/src/services/__tests__/vapi.test.ts',
+    verifiedAt: '2026-01-27T01:04:00Z',
     addedBy: 'claude',
   })
   .add({
@@ -66,8 +69,9 @@ registry
       'Emergency gets URGENT prefix, routine includes opt-out language',
     priority: 'P1',
     category: 'integration',
-    status: 'written',
+    status: 'passing',
     testFile: 'apps/api/src/services/__tests__/vapi.test.ts',
+    verifiedAt: '2026-01-27T01:04:00Z',
     addedBy: 'claude',
   })
   .add({
@@ -77,8 +81,9 @@ registry
     description: '/api/analytics/ai-roi returns calls, jobs, value metrics',
     priority: 'P1',
     category: 'api',
-    status: 'written',
+    status: 'passing',
     testFile: 'apps/api/src/routes/__tests__/analytics.test.ts',
+    verifiedAt: '2026-01-27T01:04:00Z',
     addedBy: 'claude',
   })
   .add({
@@ -88,7 +93,8 @@ registry
     description: 'Dashboard page loads and displays ROI metrics',
     priority: 'P1',
     category: 'ui',
-    status: 'not_started',
+    status: 'written',
+    testFile: 'tests/e2e/specs/ai-performance.spec.ts',
     addedBy: 'claude',
   })
   .add({
@@ -99,7 +105,9 @@ registry
       'When user mentions gas smell, AI does NOT collect info, instructs to call 911',
     priority: 'P0',
     category: 'integration',
-    status: 'not_started',
+    status: 'passing',
+    testFile: 'apps/api/src/services/__tests__/vapi.test.ts',
+    verifiedAt: '2026-01-27T01:10:00Z',
     addedBy: 'claude',
   });
 

@@ -199,6 +199,18 @@ describe('VapiService', () => {
       expect(prompt).toContain('911');
     });
 
+    it('should instruct AI to NOT collect info for Tier 0 emergencies', () => {
+      const org = createTestOrganization();
+
+      const prompt = vapi.buildSystemPrompt(org);
+
+      // Tier 0 should instruct to call 911 immediately, not collect customer info
+      expect(prompt).toMatch(/TIER 0.*do not|don't|never.*collect|gather|ask/is);
+      expect(prompt).toMatch(/gas.*smell.*911|911.*gas.*smell/is);
+      // Should prioritize safety over booking
+      expect(prompt).toMatch(/hang up|call 911|emergency services/is);
+    });
+
     it('should include Tier 1 emergency instructions', () => {
       const org = createTestOrganization();
 
