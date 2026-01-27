@@ -17,6 +17,8 @@ module.exports = {
   testTimeout: 10000,
   moduleNameMapper: {
     '^@serviceflow/database$': '<rootDir>/src/tests/mocks/database.ts',
+    // Handle .js extension imports (ESM compatibility)
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {
     '^.+\\.ts$': ['ts-jest', {
