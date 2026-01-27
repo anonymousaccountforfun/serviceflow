@@ -9,6 +9,7 @@
 
 import { prisma } from '@serviceflow/database';
 import { logger } from '../lib/logger';
+import { sms } from './sms';
 
 // ============================================
 // TYPES
@@ -274,6 +275,56 @@ If outside area: "I'll note your location. Our team will review if we can accomm
         // Enable async server-side handling for dynamic transfer destination
         async: true,
       },
+      {
+        type: 'function',
+        function: {
+          name: 'lookup_customer',
+          description: 'Look up customer by phone to check for recent calls (within 7 days)',
+          parameters: {
+            type: 'object',
+            properties: {
+              phone: {
+                type: 'string',
+                description: 'Customer phone number',
+              },
+            },
+            required: ['phone'],
+          },
+        },
+      },
+      {
+        type: 'function',
+        function: {
+          name: 'send_sms_confirmation',
+          description: 'Send SMS confirmation after collecting booking info. Call this at end of successful booking.',
+          parameters: {
+            type: 'object',
+            properties: {
+              customer_phone: {
+                type: 'string',
+                description: 'Customer phone number',
+              },
+              customer_name: {
+                type: 'string',
+                description: 'Customer first name',
+              },
+              issue: {
+                type: 'string',
+                description: 'Brief issue description',
+              },
+              is_emergency: {
+                type: 'boolean',
+                description: 'Whether this is an emergency',
+              },
+              callback_timeframe: {
+                type: 'string',
+                description: 'e.g., "15 minutes" or "2 hours"',
+              },
+            },
+            required: ['customer_phone', 'customer_name', 'issue'],
+          },
+        },
+      },
     ];
   }
 
@@ -343,8 +394,15 @@ If outside area: "I'll note your location. Our team will review if we can accomm
 
     // Create new assistant
     const aiSettings = settings?.aiSettings || {};
-    const greeting = aiSettings.greeting ||
+    let greeting = aiSettings.greeting ||
       `Thanks for calling ${org.name}! This is our AI assistant. How can I help you today?`;
+
+    // Prepend recording disclosure if enabled
+    if (aiSettings.recordingDisclosure) {
+      const disclosure = aiSettings.recordingDisclosureText ||
+        'This call may be recorded for quality purposes.';
+      greeting = `${disclosure} ${greeting}`;
+    }
 
     const assistantId = await this.createAssistant({
       organizationId,
@@ -443,6 +501,10 @@ If outside area: "I'll note your location. Our team will review if we can accomm
         return this.handleCheckAvailability(args, context);
       case 'transfer_to_human':
         return this.handleTransferToHuman(args, context);
+      case 'lookup_customer':
+        return this.handleLookupCustomer(args, context);
+      case 'send_sms_confirmation':
+        return this.handleSendSmsConfirmation(args, context);
       default:
         return { error: `Unknown tool: ${toolName}` };
     }
@@ -787,6 +849,83 @@ If outside area: "I'll note your location. Our team will review if we can accomm
         success: false,
         message: "I'm sorry, I'm having trouble connecting you right now. Let me take your information and have someone call you back shortly.",
       };
+    }
+  }
+
+  /**
+   * Handle looking up a customer by phone for repeat caller detection
+   */
+  private async handleLookupCustomer(
+    args: Record<string, unknown>,
+    context: { organizationId: string }
+  ): Promise<{ found: boolean; customerName?: string; recentCalls: Array<{ date: string; summary?: string }> }> {
+    const phone = args.phone as string;
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    const customer = await prisma.customer.findFirst({
+      where: { organizationId: context.organizationId, phone },
+      include: {
+        calls: {
+          where: { createdAt: { gte: sevenDaysAgo } },
+          orderBy: { createdAt: 'desc' },
+          take: 3,
+          select: { createdAt: true, summary: true },
+        },
+      },
+    });
+
+    if (!customer) {
+      return { found: false, recentCalls: [] };
+    }
+
+    return {
+      found: true,
+      customerName: `${customer.firstName} ${customer.lastName}`,
+      recentCalls: customer.calls.map(c => ({
+        date: c.createdAt.toISOString(),
+        summary: c.summary || undefined,
+      })),
+    };
+  }
+
+  /**
+   * Handle sending SMS confirmation after booking
+   */
+  private async handleSendSmsConfirmation(
+    args: Record<string, unknown>,
+    context: { organizationId: string }
+  ): Promise<{ success: boolean; message: string }> {
+    const { customer_phone, customer_name, issue, is_emergency, callback_timeframe } = args;
+
+    const org = await prisma.organization.findUnique({
+      where: { id: context.organizationId },
+      select: { name: true },
+    });
+
+    const customer = await prisma.customer.findFirst({
+      where: { organizationId: context.organizationId, phone: customer_phone as string },
+    });
+
+    if (!customer) {
+      return { success: false, message: 'Customer not found' };
+    }
+
+    const smsContent = is_emergency
+      ? `Hi ${customer_name}, ${org?.name} received your URGENT request: ${issue}. A technician will call within ${callback_timeframe || '15 minutes'}.`
+      : `Hi ${customer_name}, thanks for calling ${org?.name}! We noted: ${issue}. Someone will call within ${callback_timeframe || '2 hours'} to schedule. Reply STOP to opt out.`;
+
+    try {
+      await sms.send({
+        organizationId: context.organizationId,
+        customerId: customer.id,
+        to: customer_phone as string,
+        message: smsContent,
+        urgent: is_emergency as boolean,
+      });
+      return { success: true, message: 'SMS sent' };
+    } catch (e) {
+      console.error('SMS confirmation failed', e);
+      return { success: false, message: 'SMS failed to send' };
     }
   }
 }
