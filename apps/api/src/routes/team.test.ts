@@ -10,10 +10,6 @@ import { mockPrisma, testData } from '../tests/mocks/database';
 jest.mock('@clerk/backend', () => ({
   Clerk: () => ({
     verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
-  }),
-  verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
-  createClerkClient: () => ({
-    verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
     invitations: {
       createInvitation: jest.fn().mockResolvedValue({
         id: 'inv_test123',
@@ -22,6 +18,7 @@ jest.mock('@clerk/backend', () => ({
       }),
     },
   }),
+  verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
 }));
 
 describe('Team Routes', () => {

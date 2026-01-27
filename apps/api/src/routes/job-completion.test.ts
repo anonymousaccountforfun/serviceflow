@@ -68,16 +68,19 @@ describe('Job Completion Routes (PRD-011)', () => {
     });
 
     it('should return partial completion state for in-progress job', async () => {
+      // The route reads from the photos JSON field, not separate columns
       const jobWithState = {
         ...testJob,
         status: 'in_progress',
-        completionState: {
-          currentStep: 'work_summary',
-          workSummary: { description: 'Test work', actualDuration: 60 },
+        photos: {
+          photos: [
+            { id: 'photo_1', url: '/uploads/test.jpg', type: 'after', caption: null, createdAt: new Date().toISOString() },
+          ],
+          completionState: {
+            currentStep: 'work_summary',
+            workSummary: { description: 'Test work', actualDuration: 60 },
+          },
         },
-        jobPhotos: [
-          { id: 'photo_1', url: '/uploads/test.jpg', type: 'after', caption: null, createdAt: new Date() },
-        ],
       };
       mockPrisma.job.findFirst.mockResolvedValue(jobWithState);
 
@@ -93,17 +96,20 @@ describe('Job Completion Routes (PRD-011)', () => {
     });
 
     it('should return completed data for completed job', async () => {
+      // The route reads from the photos JSON field, not separate columns
       const completedJob = {
         ...testJob,
         status: 'completed',
         completedAt: new Date(),
-        completionNotes: 'Fixed the faucet',
-        actualDuration: 90,
-        partsUsed: [{ name: 'Cartridge', quantity: 1, price: 2500 }],
-        customerSignature: 'base64signature',
-        jobPhotos: [
-          { id: 'photo_1', url: '/uploads/after.jpg', type: 'after', caption: null, createdAt: new Date() },
-        ],
+        photos: {
+          photos: [
+            { id: 'photo_1', url: '/uploads/after.jpg', type: 'after', caption: null, createdAt: new Date().toISOString() },
+          ],
+          completionNotes: 'Fixed the faucet',
+          actualDuration: 90,
+          partsUsed: [{ name: 'Cartridge', quantity: 1, price: 2500 }],
+          customerSignature: 'base64signature',
+        },
       };
       mockPrisma.job.findFirst.mockResolvedValue(completedJob);
 
@@ -433,8 +439,17 @@ describe('Job Completion Routes (PRD-011)', () => {
 
   describe('DELETE /api/jobs/:id/photos/:photoId', () => {
     it('should delete a job photo', async () => {
-      mockPrisma.job.findFirst.mockResolvedValue(testJob);
-      mockPrisma.jobPhoto.deleteMany.mockResolvedValue({ count: 1 });
+      // The route reads photos from job.photos JSON field and updates via job.update
+      const jobWithPhoto = {
+        ...testJob,
+        photos: {
+          photos: [
+            { id: 'photo_123', url: '/uploads/test.jpg', type: 'after', createdAt: new Date().toISOString() },
+          ],
+        },
+      };
+      mockPrisma.job.findFirst.mockResolvedValue(jobWithPhoto);
+      mockPrisma.job.update.mockResolvedValue({ ...jobWithPhoto, photos: { photos: [] } });
 
       const response = await request(app)
         .delete(`/api/jobs/${testJob.id}/photos/photo_123`)
@@ -446,8 +461,16 @@ describe('Job Completion Routes (PRD-011)', () => {
     });
 
     it('should return 404 for non-existent photo', async () => {
-      mockPrisma.job.findFirst.mockResolvedValue(testJob);
-      mockPrisma.jobPhoto.deleteMany.mockResolvedValue({ count: 0 });
+      // Job exists but photo ID doesn't match any in the photos array
+      const jobWithPhoto = {
+        ...testJob,
+        photos: {
+          photos: [
+            { id: 'photo_other', url: '/uploads/test.jpg', type: 'after', createdAt: new Date().toISOString() },
+          ],
+        },
+      };
+      mockPrisma.job.findFirst.mockResolvedValue(jobWithPhoto);
 
       const response = await request(app)
         .delete(`/api/jobs/${testJob.id}/photos/nonexistent`)
