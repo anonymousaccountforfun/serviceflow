@@ -10,6 +10,7 @@ import {
   Users,
   Briefcase,
   Star,
+  Bot,
   Settings,
   LogOut,
   Menu,
@@ -30,6 +31,7 @@ const navItems = [
   { href: '/dashboard/customers', label: 'Customers', icon: Users },
   { href: '/dashboard/jobs', label: 'Jobs', icon: Briefcase },
   { href: '/dashboard/reviews', label: 'Reviews', icon: Star },
+  { href: '/dashboard/ai-performance', label: 'AI Performance', icon: Bot },
 ];
 
 function UserInfo() {
