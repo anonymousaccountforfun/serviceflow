@@ -228,6 +228,7 @@ export const serviceAreaSchema = z.object({
 });
 
 export const aiSettingsSchema = z.object({
+  // Existing
   voiceEnabled: z.boolean().default(true),
   textEnabled: z.boolean().default(true),
   voiceId: z.string().optional(),
@@ -235,6 +236,17 @@ export const aiSettingsSchema = z.object({
   escalationKeywords: z.array(z.string()).default([]),
   quietHoursStart: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
   quietHoursEnd: z.string().regex(/^([01]\d|2[0-3]):([0-5]\d)$/).optional(),
+
+  // V1 Fields
+  servicesOffered: z.array(z.string()).default([]),
+  servicesNotOffered: z.array(z.string()).default([]),
+  afterHoursBehavior: z.enum(['emergency_only', 'full_service', 'message_only']).default('emergency_only'),
+  emergencyCallbackMinutes: z.number().int().min(5).max(60).default(15),
+  nonEmergencyCallbackMinutes: z.number().int().min(30).max(480).default(120),
+  serviceCallFee: z.number().int().min(0).optional(),
+  freeEstimates: z.boolean().default(false),
+  recordingDisclosure: z.boolean().default(true),
+  recordingDisclosureText: z.string().max(200).optional(),
 });
 
 export const updateOrganizationSettingsSchema = z.object({

@@ -46,6 +46,7 @@ export interface ServiceArea {
 }
 
 export interface AISettings {
+  // Existing fields
   voiceEnabled: boolean;
   textEnabled: boolean;
   voiceId?: string;
@@ -53,6 +54,25 @@ export interface AISettings {
   escalationKeywords: string[];
   quietHoursStart?: string; // HH:mm
   quietHoursEnd?: string;
+
+  // V1 Fields - Services
+  servicesOffered?: string[];
+  servicesNotOffered?: string[];
+
+  // V1 Fields - After Hours
+  afterHoursBehavior?: 'emergency_only' | 'full_service' | 'message_only';
+
+  // V1 Fields - Callback Promises
+  emergencyCallbackMinutes?: number;
+  nonEmergencyCallbackMinutes?: number;
+
+  // V1 Fields - Pricing
+  serviceCallFee?: number; // cents
+  freeEstimates?: boolean;
+
+  // V1 Fields - Compliance
+  recordingDisclosure?: boolean;
+  recordingDisclosureText?: string;
 }
 
 export interface NotificationSettings {
