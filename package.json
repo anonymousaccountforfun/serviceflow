@@ -19,7 +19,9 @@
     "setup": "bash scripts/setup.sh",
     "test:missed-call": "tsx scripts/test-missed-call.ts",
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "test:requirements": "tsx scripts/generate-test-report.ts",
+    "test:requirements:ci": "tsx scripts/generate-test-report.ts --ci"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
