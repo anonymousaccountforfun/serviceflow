@@ -80,10 +80,11 @@ export default defineConfig({
   ],
 
   // Local dev server (optional)
-  webServer: process.env.CI ? undefined : {
+  // Skip webServer if CI or if TEST_BASE_URL is set (testing against external deployment)
+  webServer: (process.env.CI || process.env.TEST_BASE_URL) ? undefined : {
     command: 'pnpm --filter @serviceflow/web dev',
     url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: true,
     timeout: 120000,
   },
 });

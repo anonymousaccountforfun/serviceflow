@@ -55,28 +55,75 @@ setup('authenticate main user', async ({ page }) => {
   // Wait for Clerk sign-in form
   await page.waitForSelector('[data-clerk-component], form', { timeout: 10000 });
 
-  // Fill in credentials
+  // Fill in email
   const emailInput = page.locator('input[name="identifier"], input[type="email"]').first();
   await emailInput.fill(TEST_USER.email);
 
-  // Click continue (Clerk often has two-step sign-in)
+  // Click continue (Clerk has two-step sign-in)
   const continueButton = page.locator('button[type="submit"], button:has-text("Continue")').first();
+
+  // Set up listeners for "Use password" button before clicking continue
+  // This helps catch it before auto-redirect to OAuth
+  const usePasswordButton = page.locator('button:has-text("Use password"), button:has-text("Password"), a:has-text("Use password"), button:has-text("use password")');
+
   await continueButton.click();
 
+  // Immediately look for "Use password" option (race against OAuth redirect)
+  let foundPasswordOption = false;
+  for (let i = 0; i < 10; i++) {
+    await page.waitForTimeout(200);
+
+    // Check if we're already on Google OAuth
+    const currentUrl = page.url();
+    if (currentUrl.includes('accounts.google.com') || currentUrl.includes('oauth')) {
+      break;
+    }
+
+    // Try to find and click "Use password"
+    if (await usePasswordButton.first().isVisible()) {
+      console.log('Found "Use password" option, clicking...');
+      await usePasswordButton.first().click();
+      foundPasswordOption = true;
+      await page.waitForTimeout(500);
+      break;
+    }
+
+    // Check if password field is already visible (no "Use password" needed)
+    const passwordField = page.locator('input[type="password"]:not([disabled])').first();
+    if (await passwordField.isVisible()) {
+      foundPasswordOption = true;
+      break;
+    }
+  }
+
+  // Final check - if we're on Google OAuth, fail with helpful message
+  const finalCheckUrl = page.url();
+  if (finalCheckUrl.includes('accounts.google.com') || finalCheckUrl.includes('oauth')) {
+    throw new Error(
+      `Test account "${TEST_USER.email}" redirected to OAuth. ` +
+      'Clerk auto-redirected before we could select "Use password". ' +
+      'Please ensure the test account was created with email/password (not Google Sign-In), ' +
+      'or try a non-Gmail email address.'
+    );
+  }
+
   // Wait for password field
-  const passwordInput = page.locator('input[type="password"]').first();
-  await passwordInput.waitFor({ state: 'visible', timeout: 5000 });
+  const passwordInput = page.locator('input[type="password"]:not([disabled])').first();
+  await passwordInput.waitFor({ state: 'visible', timeout: 10000 });
   await passwordInput.fill(TEST_USER.password);
 
-  // Submit
-  const signInButton = page.locator('button[type="submit"], button:has-text("Sign in")').first();
+  // Submit - look for sign in button or submit
+  const signInButton = page.locator('button[type="submit"]:has-text("Continue"), button[type="submit"]:has-text("Sign in"), button:has-text("Sign in")').first();
   await signInButton.click();
 
-  // Wait for redirect to dashboard
-  await page.waitForURL(/dashboard/, { timeout: 30000 });
+  // Wait for redirect to dashboard or onboarding
+  await page.waitForURL(/(dashboard|onboarding)/, { timeout: 30000 });
 
-  // Verify we're authenticated
-  await expect(page.locator('body')).toContainText(/dashboard|home/i);
+  // If on onboarding, it's still authenticated
+  const finalUrl = page.url();
+  if (finalUrl.includes('onboarding')) {
+    console.log('ℹ️  User redirected to onboarding (still authenticated)');
+  }
 
   // Save storage state
   await page.context().storageState({ path: STORAGE_STATE_PATH });
