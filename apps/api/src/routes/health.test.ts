@@ -6,6 +6,14 @@ import request from 'supertest';
 import app from '../index';
 import { mockPrisma } from '../tests/mocks/database';
 
+// Mock Clerk
+jest.mock('@clerk/backend', () => ({
+  Clerk: () => ({
+    verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
+  }),
+  verifyToken: jest.fn().mockResolvedValue({ sub: 'clerk_test123' }),
+}));
+
 describe('Health Routes', () => {
   describe('GET /health', () => {
     it('should return 200 and healthy status when database is connected', async () => {

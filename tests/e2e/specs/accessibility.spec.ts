@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { waitForPageLoad } from '../utils/test-helpers';
+import { waitForPageLoad, checkAccessibility } from '../utils/test-helpers';
 
 /**
  * Accessibility Test Suite
@@ -13,6 +13,72 @@ import { waitForPageLoad } from '../utils/test-helpers';
 
 test.describe('Accessibility', () => {
   test.use({ storageState: 'tests/e2e/.auth/user.json' });
+
+  test.describe('WCAG 2.1 AA Automated Scans (axe-core)', () => {
+    const pagesToScan = [
+      { name: 'Dashboard', path: '/dashboard' },
+      { name: 'Customers', path: '/dashboard/customers' },
+      { name: 'Jobs', path: '/dashboard/jobs' },
+      { name: 'Calendar', path: '/dashboard/calendar' },
+      { name: 'Inbox', path: '/dashboard/inbox' },
+      { name: 'Reviews', path: '/dashboard/reviews' },
+      { name: 'Settings', path: '/dashboard/settings' },
+    ];
+
+    for (const { name, path } of pagesToScan) {
+      test(`${name} page should have no critical accessibility violations`, async ({ page }) => {
+        await page.goto(path);
+        await waitForPageLoad(page);
+
+        const violations = await checkAccessibility(page);
+
+        // Filter for critical and serious violations
+        const criticalViolations = violations.filter(
+          (v: any) => v.impact === 'critical' || v.impact === 'serious'
+        );
+
+        // Log violations for debugging
+        if (criticalViolations.length > 0) {
+          console.log(`Accessibility violations on ${name}:`);
+          criticalViolations.forEach((v: any) => {
+            console.log(`  - ${v.id}: ${v.description} (${v.impact})`);
+            console.log(`    Help: ${v.helpUrl}`);
+          });
+        }
+
+        expect(criticalViolations).toHaveLength(0);
+      });
+    }
+
+    test('should have no color contrast violations', async ({ page }) => {
+      await page.goto('/dashboard');
+      await waitForPageLoad(page);
+
+      const violations = await checkAccessibility(page);
+      const contrastViolations = violations.filter(
+        (v: any) => v.id === 'color-contrast' || v.id === 'color-contrast-enhanced'
+      );
+
+      expect(contrastViolations).toHaveLength(0);
+    });
+
+    test('form should have no label violations', async ({ page }) => {
+      await page.goto('/dashboard/customers');
+      await waitForPageLoad(page);
+
+      // Open add customer modal
+      const addButton = page.locator('button:has-text("Add"), button:has-text("New")').first();
+      await addButton.click();
+      await page.waitForSelector('[role="dialog"], [class*="modal"]');
+
+      const violations = await checkAccessibility(page);
+      const labelViolations = violations.filter(
+        (v: any) => v.id === 'label' || v.id === 'label-title-only'
+      );
+
+      expect(labelViolations).toHaveLength(0);
+    });
+  });
 
   test.describe('Keyboard Navigation', () => {
     test('should navigate dashboard with keyboard only', async ({ page }) => {
@@ -451,6 +517,93 @@ test.describe('Accessibility', () => {
       const errorAlert = page.locator('[role="alert"], [aria-live="assertive"], [aria-live="polite"]');
       const exists = await errorAlert.count() > 0;
       expect(exists).toBe(true);
+    });
+  });
+
+  test.describe('Mobile Viewport Accessibility', () => {
+    test.use({ viewport: { width: 390, height: 844 } }); // iPhone 12
+
+    test('should be accessible on mobile viewport', async ({ page }) => {
+      await page.goto('/dashboard');
+      await waitForPageLoad(page);
+
+      // Check that navigation is accessible (hamburger menu)
+      const mobileMenu = page.locator('button[aria-label*="menu"], button[aria-expanded]').first();
+      if (await mobileMenu.isVisible()) {
+        await mobileMenu.click();
+        await page.waitForTimeout(300);
+
+        // Menu should be expanded
+        const isExpanded = await mobileMenu.getAttribute('aria-expanded');
+        expect(isExpanded).toBe('true');
+      }
+
+      // Check touch targets are at least 44x44px
+      const buttons = await page.locator('button, a, [role="button"]').all();
+      for (const button of buttons.slice(0, 10)) {
+        if (await button.isVisible()) {
+          const box = await button.boundingBox();
+          if (box) {
+            expect(box.width).toBeGreaterThanOrEqual(44);
+            expect(box.height).toBeGreaterThanOrEqual(44);
+          }
+        }
+      }
+    });
+
+    test('forms should be usable without horizontal scroll', async ({ page }) => {
+      await page.goto('/dashboard/customers');
+      await waitForPageLoad(page);
+
+      // Open add form
+      const addButton = page.locator('button:has-text("Add"), button:has-text("New")').first();
+      await addButton.click();
+      await page.waitForSelector('[role="dialog"], [class*="modal"]');
+
+      // Check form inputs don't overflow viewport
+      const inputs = await page.locator('input, select, textarea').all();
+      for (const input of inputs) {
+        if (await input.isVisible()) {
+          const box = await input.boundingBox();
+          if (box) {
+            expect(box.x + box.width).toBeLessThanOrEqual(390);
+          }
+        }
+      }
+    });
+
+    test('tables should scroll horizontally on small screens', async ({ page }) => {
+      await page.goto('/dashboard/customers');
+      await waitForPageLoad(page);
+
+      const table = page.locator('table');
+      if (await table.count() > 0) {
+        const tableContainer = table.locator('..');
+
+        // Table or its container should have overflow-x: auto/scroll
+        const overflowX = await tableContainer.evaluate((el) =>
+          window.getComputedStyle(el).overflowX
+        );
+
+        expect(['auto', 'scroll', 'visible']).toContain(overflowX);
+      }
+    });
+
+    test('modals should fit within mobile viewport', async ({ page }) => {
+      await page.goto('/dashboard/customers');
+      await waitForPageLoad(page);
+
+      const addButton = page.locator('button:has-text("Add"), button:has-text("New")').first();
+      await addButton.click();
+
+      const modal = page.locator('[role="dialog"], [class*="modal"]');
+      await expect(modal.first()).toBeVisible();
+
+      const box = await modal.first().boundingBox();
+      if (box) {
+        expect(box.width).toBeLessThanOrEqual(390);
+        expect(box.height).toBeLessThanOrEqual(844);
+      }
     });
   });
 
