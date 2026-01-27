@@ -189,6 +189,13 @@ class ApiClient {
     return this.request<{ total: number; byMonth: Array<{ month: string; amount: number }> }>('GET', `/api/analytics/revenue?${params}`);
   }
 
+  async getAIROIAnalytics(params?: { startDate?: string; endDate?: string }) {
+    const searchParams = new URLSearchParams();
+    if (params?.startDate) searchParams.set('startDate', params.startDate);
+    if (params?.endDate) searchParams.set('endDate', params.endDate);
+    return this.request<any>('GET', `/api/analytics/ai-roi?${searchParams}`);
+  }
+
   // Calendar
   async getCalendarDay(date: string, technicianId?: string) {
     const params = new URLSearchParams();

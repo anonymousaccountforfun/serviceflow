@@ -724,4 +724,77 @@ router.get('/conversations', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/analytics/ai-roi
+ * AI Voice ROI metrics
+ */
+router.get('/ai-roi', async (req, res) => {
+  try {
+    const orgId = req.headers['x-organization-id'] as string;
+    const { startDate, endDate } = req.query as any;
+
+    const start = startDate ? new Date(startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const end = endDate ? new Date(endDate) : new Date();
+
+    const [totalCalls, aiCalls, aiJobs, emergencyJobs, aiJobsValue] = await Promise.all([
+      prisma.call.count({
+        where: { organizationId: orgId, createdAt: { gte: start, lte: end } },
+      }),
+      prisma.call.count({
+        where: { organizationId: orgId, createdAt: { gte: start, lte: end }, aiHandled: true },
+      }),
+      prisma.job.count({
+        where: {
+          organizationId: orgId,
+          createdAt: { gte: start, lte: end },
+          customer: { source: 'phone_ai' },
+        },
+      }),
+      prisma.job.count({
+        where: {
+          organizationId: orgId,
+          createdAt: { gte: start, lte: end },
+          priority: 'emergency',
+          customer: { source: 'phone_ai' },
+        },
+      }),
+      prisma.job.aggregate({
+        where: {
+          organizationId: orgId,
+          createdAt: { gte: start, lte: end },
+          customer: { source: 'phone_ai' },
+        },
+        _sum: { estimatedValue: true },
+      }),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        period: { start, end },
+        callsAnsweredByAI: {
+          total: aiCalls,
+          percentage: totalCalls > 0 ? Math.round((aiCalls / totalCalls) * 100) : 0,
+        },
+        appointmentsBookedByAI: {
+          count: aiJobs,
+          estimatedValue: aiJobsValue._sum.estimatedValue || 0,
+          formatted: `$${((aiJobsValue._sum.estimatedValue || 0) / 100).toLocaleString()}`,
+        },
+        emergencyVsRoutine: {
+          emergency: emergencyJobs,
+          routine: aiJobs - emergencyJobs,
+        },
+        afterHoursCallsHandled: aiCalls, // Simplified for V1
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching AI ROI analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch AI ROI analytics' },
+    });
+  }
+});
+
 export default router;
