@@ -21,7 +21,11 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
     "clean": "turbo run clean && rm -rf node_modules",
     "test:requirements": "tsx scripts/generate-test-report.ts",
-    "test:requirements:ci": "tsx scripts/generate-test-report.ts --ci"
+    "test:requirements:ci": "tsx scripts/generate-test-report.ts --ci",
+    "test:e2e": "playwright test --config=tests/e2e/playwright.config.ts",
+    "test:e2e:ui": "playwright test --config=tests/e2e/playwright.config.ts --ui",
+    "test:e2e:headed": "playwright test --config=tests/e2e/playwright.config.ts --headed",
+    "test:e2e:debug": "playwright test --config=tests/e2e/playwright.config.ts --debug"
   },
   "devDependencies": {
     "@playwright/test": "^1.58.0",
