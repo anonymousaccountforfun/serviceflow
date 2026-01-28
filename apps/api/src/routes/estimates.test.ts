@@ -7,6 +7,15 @@ import request from 'supertest';
 import app from '../index';
 import { mockPrisma, testData } from '../tests/mocks/database';
 
+// Mock SMS service
+jest.mock('../services/sms', () => ({
+  sms: {
+    sendTemplated: jest.fn().mockResolvedValue({ success: true }),
+  },
+}));
+
+import { sms } from '../services/sms';
+
 // Mock Clerk
 jest.mock('@clerk/backend', () => ({
   Clerk: () => ({
@@ -428,6 +437,222 @@ describe('Estimates Routes', () => {
         .expect(201);
 
       expect(response1.body.data.number).toBe('EST-001');
+    });
+  });
+
+  describe('POST /api/estimates/:id/request-deposit', () => {
+    const approvedEstimate = {
+      ...testEstimate,
+      status: 'approved',
+      total: 100000, // $1000.00
+      depositRequested: false,
+      depositInvoiceId: null,
+      depositRequestedAt: null,
+      organization: { id: 'org_test123', name: 'Test Business' },
+    };
+
+    const depositInvoice = {
+      id: 'inv_deposit123',
+      organizationId: 'org_test123',
+      customerId: 'cust_test123',
+      jobId: 'job_test123',
+      estimateId: 'est_test123',
+      status: 'sent',
+      subtotal: 50000,
+      tax: 0,
+      total: 50000,
+      isDeposit: true,
+      depositRequired: 50000,
+      sentAt: new Date(),
+      customer: { id: 'cust_test123', firstName: 'John', lastName: 'Doe', phone: '+15551234567' },
+    };
+
+    beforeEach(() => {
+      (sms.sendTemplated as jest.Mock).mockClear();
+    });
+
+    it('should create deposit invoice from approved estimate with default 50%', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(approvedEstimate);
+      mockPrisma.invoice.create.mockResolvedValue(depositInvoice);
+      mockPrisma.estimate.update.mockResolvedValue({
+        ...approvedEstimate,
+        depositRequested: true,
+        depositInvoiceId: depositInvoice.id,
+      });
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.depositInvoice).toBeDefined();
+      expect(response.body.data.depositInvoice.isDeposit).toBe(true);
+      expect(response.body.data.estimate.depositRequested).toBe(true);
+    });
+
+    it('should use custom deposit percentage', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(approvedEstimate);
+      mockPrisma.invoice.create.mockResolvedValue({
+        ...depositInvoice,
+        subtotal: 25000,
+        total: 25000,
+        depositRequired: 25000,
+      });
+      mockPrisma.estimate.update.mockResolvedValue({
+        ...approvedEstimate,
+        depositRequested: true,
+      });
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .send({ depositPercentage: 25 })
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(mockPrisma.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            total: 25000, // 25% of 100000
+            isDeposit: true,
+          }),
+        })
+      );
+    });
+
+    it('should use fixed deposit amount when provided', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(approvedEstimate);
+      mockPrisma.invoice.create.mockResolvedValue({
+        ...depositInvoice,
+        subtotal: 30000,
+        total: 30000,
+        depositRequired: 30000,
+      });
+      mockPrisma.estimate.update.mockResolvedValue({
+        ...approvedEstimate,
+        depositRequested: true,
+      });
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .send({ depositAmount: 30000 })
+        .expect(201);
+
+      expect(response.body.success).toBe(true);
+      expect(mockPrisma.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            total: 30000,
+            isDeposit: true,
+          }),
+        })
+      );
+    });
+
+    it('should reject if estimate not approved', async () => {
+      const draftEstimate = { ...approvedEstimate, status: 'draft' };
+      mockPrisma.estimate.findFirst.mockResolvedValue(draftEstimate);
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.message).toContain('approved');
+    });
+
+    it('should reject if deposit already requested', async () => {
+      const alreadyRequestedEstimate = {
+        ...approvedEstimate,
+        depositRequested: true,
+        depositInvoiceId: 'inv_existing',
+      };
+      mockPrisma.estimate.findFirst.mockResolvedValue(alreadyRequestedEstimate);
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('E5002');
+      expect(response.body.error.message).toContain('already been requested');
+    });
+
+    it('should reject if deposit amount exceeds total', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(approvedEstimate);
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .send({ depositAmount: 150000 }) // Exceeds 100000 total
+        .expect(400);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('E5003');
+      expect(response.body.error.message).toContain('cannot exceed');
+    });
+
+    it('should return 404 for non-existent estimate', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(null);
+
+      const response = await request(app)
+        .post('/api/estimates/nonexistent/request-deposit')
+        .set(authHeader)
+        .expect(404);
+
+      expect(response.body.success).toBe(false);
+      expect(response.body.error.code).toBe('E3001');
+    });
+
+    it('should send SMS with deposit payment link', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(approvedEstimate);
+      mockPrisma.invoice.create.mockResolvedValue(depositInvoice);
+      mockPrisma.estimate.update.mockResolvedValue({
+        ...approvedEstimate,
+        depositRequested: true,
+      });
+
+      await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .expect(201);
+
+      expect(sms.sendTemplated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: 'org_test123',
+          customerId: 'cust_test123',
+          to: '+15551234567',
+          templateType: 'deposit_requested',
+          variables: expect.objectContaining({
+            customerName: 'John Doe',
+            estimateNumber: 'EST-001',
+          }),
+        })
+      );
+    });
+
+    it('should succeed even if SMS fails', async () => {
+      mockPrisma.estimate.findFirst.mockResolvedValue(approvedEstimate);
+      mockPrisma.invoice.create.mockResolvedValue(depositInvoice);
+      mockPrisma.estimate.update.mockResolvedValue({
+        ...approvedEstimate,
+        depositRequested: true,
+      });
+      (sms.sendTemplated as jest.Mock).mockRejectedValueOnce(new Error('SMS failed'));
+
+      const response = await request(app)
+        .post(`/api/estimates/${testEstimate.id}/request-deposit`)
+        .set(authHeader)
+        .expect(201);
+
+      // Should still succeed - SMS failure is logged but doesn't fail the request
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.depositInvoice).toBeDefined();
     });
   });
 });

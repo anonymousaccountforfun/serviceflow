@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma, Prisma } from '@serviceflow/database';
 import { createJobSchema, updateJobSchema, jobPaginationSchema } from '@serviceflow/shared';
 import { events, JobCompletedEventData } from '../services/events';
+import { linkJobToAttribution, updateAttributionStage } from '../services/attribution';
 import { logger } from '../lib/logger';
 
 const router = Router();
@@ -120,6 +121,19 @@ router.post('/', async (req, res) => {
       },
     });
 
+    // Link job to call attribution if one exists for this customer
+    try {
+      await linkJobToAttribution(
+        orgId,
+        data.customerId!,
+        job.id,
+        data.estimatedValue
+      );
+    } catch (attrError) {
+      // Don't fail job creation if attribution linking fails
+      logger.warn('Failed to link job to attribution', { jobId: job.id, error: attrError });
+    }
+
     res.status(201).json({ success: true, data: job });
   } catch (error) {
     logger.error('Error creating job', error);
@@ -164,7 +178,7 @@ router.patch('/:id', async (req, res) => {
       include: { customer: true },
     });
 
-    // If job completed, emit event to trigger review request
+    // If job completed, emit event to trigger review request and update attribution
     if (data.status === 'completed' && updated) {
       await events.emit<JobCompletedEventData>({
         type: 'job.completed',
@@ -178,6 +192,29 @@ router.patch('/:id', async (req, res) => {
           technicianId: updated.assignedToId,
         },
       });
+
+      // Update attribution to job_completed stage
+      try {
+        await updateAttributionStage({
+          jobId: id,
+          stage: 'job_completed',
+          actualValue: updated.actualValue || undefined,
+        });
+      } catch (attrError) {
+        logger.warn('Failed to update attribution stage', { jobId: id, error: attrError });
+      }
+    }
+
+    // Handle other status changes for attribution
+    if (data.status === 'scheduled' && updated) {
+      try {
+        await updateAttributionStage({
+          jobId: id,
+          stage: 'job_scheduled',
+        });
+      } catch (attrError) {
+        logger.warn('Failed to update attribution stage', { jobId: id, error: attrError });
+      }
     }
 
     res.json({ success: true, data: updated });

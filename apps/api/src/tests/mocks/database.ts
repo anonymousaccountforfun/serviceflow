@@ -37,6 +37,7 @@ export const mockPrisma = {
   invoice: createMockMethods(),
   invoiceLineItem: createMockMethods(),
   invoicePayment: createMockMethods(),
+  payment: createMockMethods(),
   template: createMockMethods(),
   messageTemplate: createMockMethods(),
   googleCredential: createMockMethods(),
@@ -50,7 +51,18 @@ export const mockPrisma = {
   event: createMockMethods(),
   webhookLog: createMockMethods(),
   jobPhoto: createMockMethods(),
-  $transaction: jest.fn((fn: Function) => fn(mockPrisma)),
+  serviceTemplate: createMockMethods(),
+  callAttribution: createMockMethods(),
+  timeEntry: createMockMethods(),
+  // Handle both callback-based and array-based transactions
+  $transaction: jest.fn((fnOrArray: Function | unknown[]) => {
+    if (typeof fnOrArray === 'function') {
+      return fnOrArray(mockPrisma);
+    }
+    // For array-based transactions, return Promise.all of the queries
+    // Tests should mock this with mockResolvedValue for specific return values
+    return Promise.all(fnOrArray as Promise<unknown>[]);
+  }),
 };
 
 // Export as prisma for the module mock
@@ -70,8 +82,13 @@ export function resetMocks() {
     }
   });
 
-  // Reset $transaction to default behavior
-  mockPrisma.$transaction.mockImplementation((fn: Function) => fn(mockPrisma));
+  // Reset $transaction to default behavior (handles both callback and array-based)
+  mockPrisma.$transaction.mockImplementation((fnOrArray: Function | unknown[]) => {
+    if (typeof fnOrArray === 'function') {
+      return fnOrArray(mockPrisma);
+    }
+    return Promise.all(fnOrArray as Promise<unknown>[]);
+  });
 }
 
 // Test data factories
@@ -155,6 +172,8 @@ export const testData = {
     content: 'Hello, this is a test message',
     direction: 'inbound',
     senderType: 'customer',
+    status: 'delivered',
+    metadata: {},
     createdAt: new Date(),
     ...overrides,
   }),
@@ -334,6 +353,10 @@ export const testData = {
     viewedAt: null,
     approvedAt: null,
     declinedAt: null,
+    // Deposit workflow fields
+    depositRequested: false,
+    depositInvoiceId: null,
+    depositRequestedAt: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,
@@ -356,6 +379,46 @@ export const testData = {
     sentAt: null,
     paidAt: null,
     stripePaymentIntentId: null,
+    // Deposit workflow fields
+    depositRequired: null,
+    depositPaid: false,
+    depositPaidAt: null,
+    isDeposit: false,
+    parentInvoiceId: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  }),
+
+  serviceTemplate: (overrides = {}) => ({
+    id: 'tmpl_test123',
+    organizationId: 'org_test123',
+    name: 'Standard Drain Cleaning',
+    description: 'Basic drain cleaning service',
+    lineItems: [
+      { description: 'Drain Cleaning', quantity: 1, unitPrice: 15000, total: 15000 },
+      { description: 'Trip Charge', quantity: 1, unitPrice: 5000, total: 5000 },
+    ],
+    category: 'Plumbing',
+    isActive: true,
+    sortOrder: 0,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    ...overrides,
+  }),
+
+  callAttribution: (overrides = {}) => ({
+    id: 'attr_test123',
+    organizationId: 'org_test123',
+    callId: 'call_test123',
+    customerId: 'cust_test123',
+    jobId: null,
+    stage: 'call_received',
+    stageChangedAt: new Date(),
+    recoveryMethod: 'ai_answered',
+    responseTimeMs: 2500,
+    estimatedValue: null,
+    actualValue: null,
     createdAt: new Date(),
     updatedAt: new Date(),
     ...overrides,

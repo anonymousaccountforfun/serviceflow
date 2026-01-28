@@ -10,6 +10,8 @@ import { prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { z } from 'zod';
 import { logger } from '../lib/logger';
+import { sms } from '../services/sms';
+import { updateAttributionStage } from '../services/attribution';
 
 const router = Router();
 
@@ -443,6 +445,19 @@ router.post('/:id/send', async (req, res) => {
       },
     });
 
+    // Update attribution to quote_sent stage
+    if (estimate.jobId) {
+      try {
+        await updateAttributionStage({
+          jobId: estimate.jobId,
+          stage: 'quote_sent',
+          estimatedValue: estimate.total,
+        });
+      } catch (attrError) {
+        logger.warn('Failed to update attribution stage', { estimateId: id, error: attrError });
+      }
+    }
+
     // Return the public token for generating the customer-facing URL
     res.json({
       success: true,
@@ -538,6 +553,178 @@ router.post('/:id/convert', async (req, res) => {
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to convert estimate to invoice' },
+    });
+  }
+});
+
+// Deposit request schema
+const requestDepositSchema = z.object({
+  depositPercentage: z.number().min(1).max(100).optional(), // Default 50%
+  depositAmount: z.number().int().positive().optional(), // Override percentage with fixed amount
+  message: z.string().optional(), // Custom message for customer
+});
+
+// POST /api/estimates/:id/request-deposit - Request deposit from approved estimate
+router.post('/:id/request-deposit', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const orgId = req.auth!.organizationId;
+    const data = requestDepositSchema.parse(req.body);
+
+    const estimate = await prisma.estimate.findFirst({
+      where: { id, organizationId: orgId },
+      include: {
+        customer: true,
+        organization: true,
+        lineItems: true,
+      },
+    });
+
+    if (!estimate) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'E3001', message: 'Estimate not found' },
+      });
+    }
+
+    // Can only request deposit from approved estimates
+    if (estimate.status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'E5001',
+          message: 'Can only request deposit from approved estimates',
+        },
+      });
+    }
+
+    // Check if deposit already requested
+    if (estimate.depositRequested) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'E5002',
+          message: 'Deposit has already been requested for this estimate',
+        },
+      });
+    }
+
+    // Calculate deposit amount
+    let depositAmount: number;
+    if (data.depositAmount) {
+      depositAmount = data.depositAmount;
+    } else {
+      const percentage = data.depositPercentage || 50;
+      depositAmount = Math.round(estimate.total * (percentage / 100));
+    }
+
+    // Validate deposit amount doesn't exceed total
+    if (depositAmount > estimate.total) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'E5003',
+          message: 'Deposit amount cannot exceed estimate total',
+        },
+      });
+    }
+
+    // Create deposit invoice in a transaction
+    const [depositInvoice] = await prisma.$transaction(async (tx) => {
+      // Create the deposit invoice
+      const invoice = await tx.invoice.create({
+        data: {
+          organizationId: orgId,
+          jobId: estimate.jobId || '', // Will require job for deposit
+          customerId: estimate.customerId,
+          estimateId: estimate.id,
+          lineItems: [{
+            description: `Deposit for Estimate ${estimate.number}`,
+            quantity: 1,
+            unitPrice: depositAmount,
+            total: depositAmount,
+          }],
+          subtotal: depositAmount,
+          tax: 0, // No tax on deposit
+          total: depositAmount,
+          status: 'sent',
+          sentAt: new Date(),
+          isDeposit: true,
+          depositRequired: depositAmount,
+        },
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        },
+      });
+
+      // Update estimate to mark deposit as requested
+      await tx.estimate.update({
+        where: { id },
+        data: {
+          depositRequested: true,
+          depositInvoiceId: invoice.id,
+          depositRequestedAt: new Date(),
+        },
+      });
+
+      return [invoice];
+    });
+
+    logger.info('Deposit invoice created', {
+      estimateId: id,
+      depositInvoiceId: depositInvoice.id,
+      amount: depositAmount,
+    });
+
+    // Send SMS with deposit payment link
+    if (estimate.customer?.phone) {
+      const appUrl = process.env.APP_URL || 'http://localhost:3000';
+      const paymentLink = `${appUrl}/pay/${depositInvoice.id}`;
+      const customerName = [estimate.customer.firstName, estimate.customer.lastName]
+        .filter(Boolean)
+        .join(' ') || 'Customer';
+      const businessName = estimate.organization?.name || 'Our business';
+      const amount = (depositAmount / 100).toFixed(2);
+
+      try {
+        await sms.sendTemplated({
+          organizationId: orgId,
+          customerId: estimate.customerId,
+          to: estimate.customer.phone,
+          templateType: 'deposit_requested',
+          variables: {
+            customerName,
+            amount,
+            businessName,
+            paymentLink,
+            estimateNumber: estimate.number,
+          },
+        });
+        logger.info('Deposit request SMS sent', { estimateId: id, to: estimate.customer.phone });
+      } catch (smsError) {
+        // Log error but don't fail - deposit invoice is still created
+        logger.error('Failed to send deposit request SMS', { estimateId: id, error: smsError });
+      }
+    } else {
+      logger.warn('Cannot send deposit SMS - no customer phone', { estimateId: id });
+    }
+
+    res.status(201).json({
+      success: true,
+      data: {
+        depositInvoice,
+        estimate: {
+          id: estimate.id,
+          depositRequested: true,
+          depositInvoiceId: depositInvoice.id,
+        },
+      },
+    });
+  } catch (error) {
+    logger.error('Error requesting deposit', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to request deposit' },
     });
   }
 });

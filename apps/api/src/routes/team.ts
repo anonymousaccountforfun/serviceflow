@@ -503,4 +503,168 @@ router.get('/workload', requireTeamManagement, async (req: Request, res: Respons
   }
 });
 
+/**
+ * GET /api/team/timesheet - Get team timesheet report
+ *
+ * Returns time entries for all team members for a given week.
+ * Requires owner or admin role.
+ *
+ * Query params:
+ *   - week: YYYY-Www format (e.g., 2026-W04)
+ */
+router.get('/timesheet', requireTeamManagement, async (req: Request, res: Response) => {
+  try {
+    const orgId = req.auth!.organizationId;
+
+    // Parse week parameter
+    const weekString = req.query.week as string;
+    if (!weekString || !/^\d{4}-W\d{2}$/.test(weekString)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'E4001', message: 'Week parameter is required (format: YYYY-Www)' },
+      });
+    }
+
+    // Parse week string to get date range
+    const match = weekString.match(/^(\d{4})-W(\d{2})$/);
+    if (!match) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'E4001', message: 'Invalid week format' },
+      });
+    }
+
+    const year = parseInt(match[1]);
+    const week = parseInt(match[2]);
+
+    // Calculate week start and end dates
+    const jan1 = new Date(year, 0, 1);
+    const jan1DayOfWeek = jan1.getDay();
+    const daysToFirstMonday = jan1DayOfWeek === 0 ? 1 : (8 - jan1DayOfWeek) % 7;
+    const startOfWeek1 = new Date(year, 0, 1 + daysToFirstMonday);
+    const weekStart = new Date(startOfWeek1);
+    weekStart.setDate(startOfWeek1.getDate() + (week - 1) * 7);
+    const weekEnd = new Date(weekStart);
+    weekEnd.setDate(weekStart.getDate() + 6);
+    weekEnd.setHours(23, 59, 59, 999);
+
+    // Generate date strings for the week
+    const dateStrings: string[] = [];
+    const current = new Date(weekStart);
+    while (current <= weekEnd) {
+      dateStrings.push(current.toISOString().split('T')[0]);
+      current.setDate(current.getDate() + 1);
+    }
+
+    // Fetch all technicians/employees in the org
+    const teamMembers = await prisma.user.findMany({
+      where: {
+        organizationId: orgId,
+        isActive: true,
+        role: { in: ['owner', 'admin', 'technician'] },
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        avatarUrl: true,
+      },
+      orderBy: [{ role: 'asc' }, { firstName: 'asc' }],
+    });
+
+    // Fetch all time entries for the week
+    const timeEntries = await prisma.timeEntry.findMany({
+      where: {
+        organizationId: orgId,
+        date: { in: dateStrings },
+      },
+      orderBy: [{ userId: 'asc' }, { date: 'asc' }],
+    });
+
+    // Build report data per team member
+    const report = teamMembers.map((member) => {
+      const memberEntries = timeEntries.filter((e) => e.userId === member.id);
+
+      // Build daily entries
+      const dailyEntries = dateStrings.map((date) => {
+        const entry = memberEntries.find((e) => e.date === date);
+        if (!entry) {
+          return {
+            date,
+            clockInAt: null,
+            clockOutAt: null,
+            breakMinutes: 0,
+            hoursWorked: 0,
+          };
+        }
+
+        let hoursWorked = entry.hoursWorked || 0;
+        if (!entry.clockOutAt && entry.clockInAt) {
+          // Still clocked in - calculate live
+          const msWorked = Date.now() - entry.clockInAt.getTime();
+          hoursWorked = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
+        }
+
+        return {
+          date,
+          clockInAt: entry.clockInAt,
+          clockOutAt: entry.clockOutAt,
+          breakMinutes: entry.breakMinutes,
+          hoursWorked,
+        };
+      });
+
+      // Calculate totals
+      const totalHours = dailyEntries.reduce((sum, d) => sum + d.hoursWorked, 0);
+      const totalBreakMinutes = dailyEntries.reduce((sum, d) => sum + d.breakMinutes, 0);
+      const daysWorked = dailyEntries.filter((d) => d.hoursWorked > 0).length;
+
+      return {
+        member: {
+          id: member.id,
+          name: [member.firstName, member.lastName].filter(Boolean).join(' ') || member.email,
+          email: member.email,
+          role: member.role,
+          avatarUrl: member.avatarUrl,
+        },
+        summary: {
+          totalHours: Math.round(totalHours * 100) / 100,
+          totalBreakMinutes,
+          daysWorked,
+          averageHoursPerDay: daysWorked > 0 ? Math.round((totalHours / daysWorked) * 100) / 100 : 0,
+        },
+        dailyEntries,
+      };
+    });
+
+    // Calculate team totals
+    const teamTotals = {
+      totalHours: report.reduce((sum, r) => sum + r.summary.totalHours, 0),
+      totalBreakMinutes: report.reduce((sum, r) => sum + r.summary.totalBreakMinutes, 0),
+      averageHoursPerMember: report.length > 0
+        ? Math.round((report.reduce((sum, r) => sum + r.summary.totalHours, 0) / report.length) * 100) / 100
+        : 0,
+    };
+
+    res.json({
+      success: true,
+      data: {
+        week: weekString,
+        weekStart: weekStart.toISOString().split('T')[0],
+        weekEnd: weekEnd.toISOString().split('T')[0],
+        teamTotals,
+        members: report,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching team timesheet', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch team timesheet' },
+    });
+  }
+});
+
 export default router;

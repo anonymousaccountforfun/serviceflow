@@ -34,6 +34,15 @@ jest.mock('../services/events', () => ({
   },
 }));
 
+// Mock SMS service
+jest.mock('../services/sms', () => ({
+  sms: {
+    sendTemplated: jest.fn().mockResolvedValue({ success: true }),
+  },
+}));
+
+import { sms } from '../services/sms';
+
 describe('Job Completion Routes (PRD-011)', () => {
   const authHeader = { Authorization: 'Bearer test_token' };
   const testUser = testData.user();
@@ -349,6 +358,162 @@ describe('Job Completion Routes (PRD-011)', () => {
         .expect(500); // Zod validation error results in 500 (could be improved to 400)
 
       expect(response.body.success).toBe(false);
+    });
+
+    it('should send invoice immediately with collectNow: true', async () => {
+      const jobWithRelations = {
+        ...testJob,
+        status: 'in_progress',
+        customer: testCustomer,
+        organization: testOrganization,
+        jobPhotos: [],
+      };
+      mockPrisma.job.findFirst.mockResolvedValue(jobWithRelations);
+      mockPrisma.job.update.mockResolvedValue({
+        ...jobWithRelations,
+        status: 'completed',
+        completedAt: new Date(),
+      });
+      mockPrisma.invoice.create.mockResolvedValue({
+        id: 'inv_collect_now',
+        total: 10000,
+      });
+
+      const dataWithCollectNow = {
+        workSummary: {
+          description: 'Fixed the issue',
+          partsUsed: [{ name: 'Part', quantity: 1, price: 5000 }],
+          actualDuration: 60,
+        },
+        payment: {
+          createInvoice: true,
+          collectNow: true,
+        },
+        reviewRequest: { skipped: true },
+      };
+
+      const response = await request(app)
+        .post(`/api/jobs/${testJob.id}/complete`)
+        .set(authHeader)
+        .send(dataWithCollectNow)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.invoiceId).toBe('inv_collect_now');
+      expect(response.body.data.paymentUrl).toContain('/pay/inv_collect_now');
+      expect(response.body.data.paymentLinkSent).toBe(true);
+
+      // Verify invoice was created with 'sent' status
+      expect(mockPrisma.invoice.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            status: 'sent',
+            sentAt: expect.any(Date),
+          }),
+        })
+      );
+
+      // Verify SMS was sent with urgent flag
+      expect(sms.sendTemplated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          templateType: 'invoice_sent',
+          urgent: true,
+          variables: expect.objectContaining({
+            paymentLink: expect.stringContaining('/pay/inv_collect_now'),
+          }),
+        })
+      );
+    });
+
+    it('should still include paymentUrl even if SMS fails', async () => {
+      const jobWithRelations = {
+        ...testJob,
+        status: 'in_progress',
+        customer: testCustomer,
+        organization: testOrganization,
+        jobPhotos: [],
+      };
+      mockPrisma.job.findFirst.mockResolvedValue(jobWithRelations);
+      mockPrisma.job.update.mockResolvedValue({
+        ...jobWithRelations,
+        status: 'completed',
+      });
+      mockPrisma.invoice.create.mockResolvedValue({
+        id: 'inv_sms_fail',
+        total: 10000,
+      });
+
+      // Mock SMS failure
+      (sms.sendTemplated as jest.Mock).mockRejectedValueOnce(new Error('SMS failed'));
+
+      const dataWithCollectNow = {
+        workSummary: {
+          description: 'Fixed the issue',
+          partsUsed: [],
+          actualDuration: 60,
+        },
+        payment: {
+          createInvoice: true,
+          collectNow: true,
+        },
+        reviewRequest: { skipped: true },
+      };
+
+      const response = await request(app)
+        .post(`/api/jobs/${testJob.id}/complete`)
+        .set(authHeader)
+        .send(dataWithCollectNow)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.paymentUrl).toContain('/pay/inv_sms_fail');
+      expect(response.body.data.paymentLinkSent).toBe(false);
+    });
+
+    it('should not send payment link when collectNow is false', async () => {
+      const jobWithRelations = {
+        ...testJob,
+        status: 'in_progress',
+        customer: testCustomer,
+        organization: testOrganization,
+        jobPhotos: [],
+      };
+      mockPrisma.job.findFirst.mockResolvedValue(jobWithRelations);
+      mockPrisma.job.update.mockResolvedValue({
+        ...jobWithRelations,
+        status: 'completed',
+      });
+      mockPrisma.invoice.create.mockResolvedValue({
+        id: 'inv_no_collect',
+        total: 10000,
+      });
+
+      (sms.sendTemplated as jest.Mock).mockClear();
+
+      const dataNoCollect = {
+        workSummary: {
+          description: 'Fixed the issue',
+          partsUsed: [],
+          actualDuration: 60,
+        },
+        payment: {
+          createInvoice: true,
+          collectNow: false,
+        },
+        reviewRequest: { skipped: true },
+      };
+
+      const response = await request(app)
+        .post(`/api/jobs/${testJob.id}/complete`)
+        .set(authHeader)
+        .send(dataNoCollect)
+        .expect(200);
+
+      expect(response.body.success).toBe(true);
+      expect(response.body.data.invoiceId).toBe('inv_no_collect');
+      expect(response.body.data.paymentUrl).toBeUndefined();
+      expect(response.body.data.paymentLinkSent).toBeUndefined();
+      expect(sms.sendTemplated).not.toHaveBeenCalled();
     });
   });
 

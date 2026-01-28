@@ -52,6 +52,11 @@ async function main() {
       content: `Last reminder about your estimate from {{businessName}}. It expires soon - let us know if you'd like to move forward!`,
     },
     {
+      type: MessageTemplateType.deposit_requested,
+      name: 'Deposit Requested',
+      content: `Hi {{customerName}}, a deposit of ${{amount}} is required for Estimate {{estimateNumber}} from {{businessName}}. Pay securely here: {{paymentLink}}`,
+    },
+    {
       type: MessageTemplateType.appointment_confirmation,
       name: 'Appointment Confirmation',
       content: `Your appointment with {{businessName}} is confirmed for {{date}} at {{time}}. Reply C to confirm or R to reschedule.`,
@@ -62,6 +67,21 @@ async function main() {
       content: `Reminder: You have an appointment with {{businessName}} tomorrow at {{time}}. We'll text when we're on our way!`,
     },
     {
+      type: MessageTemplateType.appointment_reminder_24h,
+      name: 'Appointment Reminder - 24 Hours',
+      content: `Reminder: {{technicianName}} from {{businessName}} is coming tomorrow at {{time}}. Reply Y to confirm or R to reschedule.`,
+    },
+    {
+      type: MessageTemplateType.appointment_reminder_2h,
+      name: 'Appointment Reminder - 2 Hours',
+      content: `Almost time! {{technicianName}} from {{businessName}} will arrive in about 2 hours ({{time}}). See you soon!`,
+    },
+    {
+      type: MessageTemplateType.appointment_confirm_request,
+      name: 'Appointment Confirmation Request',
+      content: `Hi {{customerName}}, can you confirm your appointment with {{businessName}} for {{date}} at {{time}}? Reply Y to confirm or R to reschedule.`,
+    },
+    {
       type: MessageTemplateType.appointment_on_my_way,
       name: 'On My Way',
       content: `{{technicianName}} from {{businessName}} is on the way! ETA: {{eta}}.`,
@@ -69,22 +89,22 @@ async function main() {
     {
       type: MessageTemplateType.invoice_sent,
       name: 'Invoice Sent',
-      content: `Hi {{customerName}}, thanks for choosing {{businessName}}! Here's your invoice: {{invoiceLink}}`,
+      content: `Hi {{customerName}}, your invoice for ${{amount}} from {{businessName}} is ready. Pay securely here: {{paymentLink}}`,
     },
     {
       type: MessageTemplateType.invoice_reminder,
       name: 'Invoice Reminder',
-      content: `Hi {{customerName}}, friendly reminder that your invoice from {{businessName}} is due. Pay securely here: {{paymentLink}}`,
+      content: `Hi {{customerName}}, reminder: your ${{amount}} invoice from {{businessName}} is due. Pay here: {{paymentLink}}`,
     },
     {
       type: MessageTemplateType.invoice_overdue,
       name: 'Invoice Overdue',
-      content: `Your invoice from {{businessName}} is now overdue. Please complete payment to avoid late fees: {{paymentLink}}`,
+      content: `{{customerName}}, your ${{amount}} invoice from {{businessName}} is overdue. Pay now to avoid late fees: {{paymentLink}}`,
     },
     {
       type: MessageTemplateType.payment_received,
       name: 'Payment Received',
-      content: `Payment received! Thank you for your business. - {{businessName}}`,
+      content: `Thank you {{customerName}}! We received your payment of ${{amount}}. {{businessName}} appreciates your business!`,
     },
     {
       type: MessageTemplateType.maintenance_reminder,
@@ -391,6 +411,36 @@ async function main() {
   });
 
   console.log(`✅ Created sequence: ${estimateSequence.name}`);
+
+  // Create appointment reminder sequence
+  const appointmentSequence = await prisma.sequence.create({
+    data: {
+      organizationId: org.id,
+      name: 'Appointment Reminders',
+      type: 'appointment_reminder',
+      trigger: { event: 'appointment.scheduled' },
+      isActive: true,
+      steps: [
+        {
+          id: 'step_1',
+          order: 0,
+          delayMinutes: -1440, // 24 hours before (negative = before scheduled time)
+          action: 'send_sms',
+          template: 'appointment_reminder_24h',
+        },
+        {
+          id: 'step_2',
+          order: 1,
+          delayMinutes: -120, // 2 hours before
+          action: 'send_sms',
+          template: 'appointment_reminder_2h',
+          conditions: [{ field: 'appointment.confirmed', operator: 'equals', value: true }],
+        },
+      ],
+    },
+  });
+
+  console.log(`✅ Created sequence: ${appointmentSequence.name}`);
 
   console.log('✅ Seeding complete!');
 }

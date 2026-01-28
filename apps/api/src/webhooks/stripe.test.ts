@@ -21,6 +21,14 @@ jest.mock('../services/stripe', () => ({
   },
 }));
 
+// Mock SMS service
+const mockSendTemplated = jest.fn().mockResolvedValue({ success: true, messageId: 'msg_123' });
+jest.mock('../services/sms', () => ({
+  sms: {
+    sendTemplated: (...args: unknown[]) => mockSendTemplated(...args),
+  },
+}));
+
 // Mock logger
 jest.mock('../lib/logger', () => ({
   logger: {
@@ -369,43 +377,343 @@ describe('Stripe Webhook Logic', () => {
   });
 
   describe('payment_intent.succeeded', () => {
-    it('should mark invoice as paid', async () => {
+    beforeEach(() => {
+      mockSendTemplated.mockResolvedValue({ success: true, messageId: 'msg_123' });
+    });
+
+    it('should create Payment record and mark invoice as paid', async () => {
+      const testCustomer = testData.customer();
+      const testOrganization = testData.organization();
       const paymentIntent = {
         id: 'pi_success',
         amount: 15000,
+        payment_method_types: ['card'],
         metadata: {
           invoiceId: 'inv_123',
         },
       };
 
-      mockPrisma.invoice.update.mockResolvedValue({
+      // Mock no existing payment (idempotency check)
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
+
+      // Mock finding the invoice
+      mockPrisma.invoice.findUnique.mockResolvedValue({
         id: 'inv_123',
-        status: 'paid',
-        paidAt: new Date(),
+        organizationId: testOrganization.id,
+        customerId: testCustomer.id,
+        customer: testCustomer,
+        organization: testOrganization,
+        total: 15000,
       });
+
+      const mockPayment = {
+        id: 'pay_stripe_123',
+        invoiceId: 'inv_123',
+        amount: 15000,
+        method: 'card',
+        status: 'succeeded',
+      };
+
+      // Mock transaction
+      mockPrisma.$transaction.mockResolvedValue([
+        mockPayment,
+        { id: 'inv_123', status: 'paid', paidAt: new Date() },
+      ]);
 
       // Simulate the handler logic
       const { invoiceId } = paymentIntent.metadata;
 
       if (invoiceId) {
-        await mockPrisma.invoice.update({
-          where: { id: invoiceId },
-          data: {
-            status: 'paid',
-            paidAt: expect.any(Date),
-            stripePaymentIntentId: paymentIntent.id,
-          },
+        // Check for duplicate
+        const existing = await mockPrisma.payment.findUnique({
+          where: { stripePaymentIntentId: paymentIntent.id },
         });
+
+        if (!existing) {
+          const invoice = await mockPrisma.invoice.findUnique({
+            where: { id: invoiceId },
+            include: { customer: true, organization: true },
+          });
+
+          if (invoice) {
+            await mockPrisma.$transaction([
+              mockPrisma.payment.create({
+                data: {
+                  invoiceId,
+                  organizationId: invoice.organizationId,
+                  customerId: invoice.customerId,
+                  amount: paymentIntent.amount,
+                  method: 'card',
+                  status: 'succeeded',
+                  stripePaymentIntentId: paymentIntent.id,
+                  processedAt: expect.any(Date),
+                },
+              }),
+              mockPrisma.invoice.update({
+                where: { id: invoiceId },
+                data: {
+                  status: 'paid',
+                  paidAt: expect.any(Date),
+                  paidAmount: paymentIntent.amount,
+                  stripePaymentIntentId: paymentIntent.id,
+                },
+              }),
+            ]);
+          }
+        }
       }
 
-      expect(mockPrisma.invoice.update).toHaveBeenCalledWith({
-        where: { id: 'inv_123' },
-        data: {
-          status: 'paid',
-          paidAt: expect.any(Date),
+      // Verify Payment record was created
+      expect(mockPrisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          invoiceId: 'inv_123',
+          amount: 15000,
+          method: 'card',
+          status: 'succeeded',
           stripePaymentIntentId: 'pi_success',
-        },
+        }),
       });
+
+      // Verify transaction was used for atomicity
+      expect(mockPrisma.$transaction).toHaveBeenCalled();
+    });
+
+    it('should detect ACH payment method', async () => {
+      const testCustomer = testData.customer();
+      const testOrganization = testData.organization();
+      const paymentIntent = {
+        id: 'pi_ach',
+        amount: 50000,
+        payment_method_types: ['us_bank_account'],
+        metadata: {
+          invoiceId: 'inv_ach',
+        },
+      };
+
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
+      mockPrisma.invoice.findUnique.mockResolvedValue({
+        id: 'inv_ach',
+        organizationId: testOrganization.id,
+        customerId: testCustomer.id,
+        customer: testCustomer,
+        organization: testOrganization,
+        total: 50000,
+      });
+
+      mockPrisma.$transaction.mockResolvedValue([
+        { id: 'pay_ach_123', method: 'ach' },
+        { id: 'inv_ach', status: 'paid' },
+      ]);
+
+      // Simulate payment method detection
+      const detectPaymentMethod = (pi: any): 'card' | 'ach' | 'other' => {
+        const type = pi.payment_method_types?.[0] || '';
+        if (type === 'card') return 'card';
+        if (type === 'us_bank_account' || type === 'ach_debit') return 'ach';
+        return 'other';
+      };
+
+      const method = detectPaymentMethod(paymentIntent);
+      expect(method).toBe('ach');
+
+      // Simulate creating payment with detected method
+      const { invoiceId } = paymentIntent.metadata;
+      const invoice = await mockPrisma.invoice.findUnique({
+        where: { id: invoiceId },
+        include: { customer: true, organization: true },
+      });
+
+      if (invoice) {
+        await mockPrisma.$transaction([
+          mockPrisma.payment.create({
+            data: {
+              invoiceId,
+              organizationId: invoice.organizationId,
+              customerId: invoice.customerId,
+              amount: paymentIntent.amount,
+              method: method,
+              status: 'succeeded',
+              stripePaymentIntentId: paymentIntent.id,
+              processedAt: expect.any(Date),
+            },
+          }),
+          mockPrisma.invoice.update({
+            where: { id: invoiceId },
+            data: { status: 'paid' },
+          }),
+        ]);
+      }
+
+      expect(mockPrisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          method: 'ach',
+        }),
+      });
+    });
+
+    it('should skip duplicate payment (idempotency)', async () => {
+      const paymentIntent = {
+        id: 'pi_duplicate',
+        amount: 10000,
+        metadata: {
+          invoiceId: 'inv_dup',
+        },
+      };
+
+      // Mock existing payment found
+      mockPrisma.payment.findUnique.mockResolvedValue({
+        id: 'pay_existing',
+        stripePaymentIntentId: 'pi_duplicate',
+      });
+
+      // Simulate idempotency check
+      const existing = await mockPrisma.payment.findUnique({
+        where: { stripePaymentIntentId: paymentIntent.id },
+      });
+
+      if (existing) {
+        // Should not create duplicate
+      }
+
+      expect(mockPrisma.invoice.update).not.toHaveBeenCalled();
+      expect(mockPrisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should send payment confirmation SMS when payment succeeds', async () => {
+      const testCustomer = testData.customer();
+      const testOrganization = testData.organization();
+      const paymentIntent = {
+        id: 'pi_sms_test',
+        amount: 15000, // $150.00
+        payment_method_types: ['card'],
+        metadata: {
+          invoiceId: 'inv_sms_test',
+        },
+      };
+
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
+      mockPrisma.invoice.findUnique.mockResolvedValue({
+        id: 'inv_sms_test',
+        organizationId: testOrganization.id,
+        customerId: testCustomer.id,
+        customer: testCustomer,
+        organization: testOrganization,
+        total: 15000,
+      });
+
+      mockPrisma.$transaction.mockResolvedValue([
+        { id: 'pay_sms_123' },
+        { id: 'inv_sms_test', status: 'paid', paidAt: new Date() },
+      ]);
+
+      // Simulate the full handler logic including SMS
+      const { invoiceId } = paymentIntent.metadata;
+
+      const existing = await mockPrisma.payment.findUnique({
+        where: { stripePaymentIntentId: paymentIntent.id },
+      });
+
+      if (!existing && invoiceId) {
+        const invoice = await mockPrisma.invoice.findUnique({
+          where: { id: invoiceId },
+          include: { customer: true, organization: true },
+        });
+
+        if (invoice) {
+          await mockPrisma.$transaction([
+            mockPrisma.payment.create({ data: {} }),
+            mockPrisma.invoice.update({ where: { id: invoiceId }, data: {} }),
+          ]);
+
+          // Send SMS if customer has phone
+          if (invoice.customer?.phone) {
+            const customerName = [invoice.customer.firstName, invoice.customer.lastName]
+              .filter(Boolean)
+              .join(' ') || 'Customer';
+            const businessName = invoice.organization?.name || 'Our business';
+            const amount = (paymentIntent.amount / 100).toFixed(2);
+
+            await mockSendTemplated({
+              organizationId: invoice.organizationId,
+              customerId: invoice.customerId,
+              to: invoice.customer.phone,
+              templateType: 'payment_received',
+              variables: {
+                customerName,
+                amount,
+                businessName,
+              },
+            });
+          }
+        }
+      }
+
+      // Verify SMS was sent with correct template and variables
+      expect(mockSendTemplated).toHaveBeenCalledWith(
+        expect.objectContaining({
+          templateType: 'payment_received',
+          to: testCustomer.phone,
+          variables: expect.objectContaining({
+            amount: '150.00', // $150.00 from 15000 cents
+          }),
+        })
+      );
+    });
+
+    it('should not send SMS when customer has no phone', async () => {
+      const testOrganization = testData.organization();
+      const customerNoPhone = testData.customer({ phone: null as any });
+      const paymentIntent = {
+        id: 'pi_no_phone',
+        amount: 10000,
+        payment_method_types: ['card'],
+        metadata: {
+          invoiceId: 'inv_no_phone',
+        },
+      };
+
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
+      mockPrisma.invoice.findUnique.mockResolvedValue({
+        id: 'inv_no_phone',
+        organizationId: testOrganization.id,
+        customerId: customerNoPhone.id,
+        customer: customerNoPhone,
+        organization: testOrganization,
+        total: 10000,
+      });
+
+      mockPrisma.$transaction.mockResolvedValue([
+        { id: 'pay_no_phone' },
+        { id: 'inv_no_phone', status: 'paid' },
+      ]);
+
+      // Simulate the handler logic
+      const { invoiceId } = paymentIntent.metadata;
+
+      const existing = await mockPrisma.payment.findUnique({
+        where: { stripePaymentIntentId: paymentIntent.id },
+      });
+
+      if (!existing && invoiceId) {
+        const invoice = await mockPrisma.invoice.findUnique({
+          where: { id: invoiceId },
+          include: { customer: true, organization: true },
+        });
+
+        if (invoice) {
+          await mockPrisma.$transaction([
+            mockPrisma.payment.create({ data: {} }),
+            mockPrisma.invoice.update({ where: { id: invoiceId }, data: {} }),
+          ]);
+
+          // Should not send SMS when no phone
+          if (invoice.customer?.phone) {
+            await mockSendTemplated({});
+          }
+        }
+      }
+
+      expect(mockSendTemplated).not.toHaveBeenCalled();
     });
 
     it('should skip non-invoice payments', async () => {
@@ -419,17 +727,22 @@ describe('Stripe Webhook Logic', () => {
       const { invoiceId } = paymentIntent.metadata as { invoiceId?: string };
 
       if (!invoiceId) {
-        // Should not update invoice
+        // Should not process anything
       }
 
+      expect(mockPrisma.payment.findUnique).not.toHaveBeenCalled();
       expect(mockPrisma.invoice.update).not.toHaveBeenCalled();
     });
   });
 
   describe('payment_intent.payment_failed', () => {
-    it('should handle failed payment gracefully', async () => {
+    it('should create Payment record with failed status', async () => {
+      const testOrganization = testData.organization();
+      const testCustomer = testData.customer();
       const paymentIntent = {
         id: 'pi_failed',
+        amount: 15000,
+        payment_method_types: ['card'],
         metadata: {
           invoiceId: 'inv_failed',
         },
@@ -438,13 +751,123 @@ describe('Stripe Webhook Logic', () => {
         },
       };
 
-      // The actual handler just logs the failure, no DB update
-      // Verify the payment data is accessible
-      expect(paymentIntent.metadata.invoiceId).toBe('inv_failed');
-      expect(paymentIntent.last_payment_error.message).toBe('Card was declined');
+      // No existing payment
+      mockPrisma.payment.findUnique.mockResolvedValue(null);
 
-      // Should not update invoice status on failure (just logs)
+      // Mock invoice lookup
+      mockPrisma.invoice.findUnique.mockResolvedValue({
+        id: 'inv_failed',
+        organizationId: testOrganization.id,
+        customerId: testCustomer.id,
+      });
+
+      const mockFailedPayment = {
+        id: 'pay_failed_123',
+        invoiceId: 'inv_failed',
+        amount: 15000,
+        method: 'card',
+        status: 'failed',
+        note: 'Card was declined',
+      };
+
+      mockPrisma.payment.create.mockResolvedValue(mockFailedPayment);
+
+      // Simulate the handler logic
+      const { invoiceId } = paymentIntent.metadata;
+
+      if (invoiceId) {
+        const existing = await mockPrisma.payment.findUnique({
+          where: { stripePaymentIntentId: paymentIntent.id },
+        });
+
+        if (!existing) {
+          const invoice = await mockPrisma.invoice.findUnique({
+            where: { id: invoiceId },
+            select: { organizationId: true, customerId: true },
+          });
+
+          if (invoice) {
+            await mockPrisma.payment.create({
+              data: {
+                invoiceId,
+                organizationId: invoice.organizationId,
+                customerId: invoice.customerId,
+                amount: paymentIntent.amount,
+                method: 'card',
+                status: 'failed',
+                stripePaymentIntentId: paymentIntent.id,
+                note: paymentIntent.last_payment_error?.message || 'Payment failed',
+                processedAt: expect.any(Date),
+              },
+            });
+          }
+        }
+      }
+
+      // Verify failed Payment record was created
+      expect(mockPrisma.payment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          invoiceId: 'inv_failed',
+          status: 'failed',
+          note: 'Card was declined',
+          stripePaymentIntentId: 'pi_failed',
+        }),
+      });
+
+      // Should not update invoice status on failure
       expect(mockPrisma.invoice.update).not.toHaveBeenCalled();
+    });
+
+    it('should skip duplicate failed payment (idempotency)', async () => {
+      const paymentIntent = {
+        id: 'pi_failed_dup',
+        amount: 10000,
+        metadata: {
+          invoiceId: 'inv_failed_dup',
+        },
+        last_payment_error: {
+          message: 'Card was declined',
+        },
+      };
+
+      // Mock existing failed payment
+      mockPrisma.payment.findUnique.mockResolvedValue({
+        id: 'pay_failed_existing',
+        stripePaymentIntentId: 'pi_failed_dup',
+        status: 'failed',
+      });
+
+      // Simulate idempotency check
+      const existing = await mockPrisma.payment.findUnique({
+        where: { stripePaymentIntentId: paymentIntent.id },
+      });
+
+      if (existing) {
+        // Should not create duplicate
+      }
+
+      expect(mockPrisma.payment.create).not.toHaveBeenCalled();
+    });
+
+    it('should skip failed payment without invoiceId', async () => {
+      const paymentIntent = {
+        id: 'pi_failed_no_invoice',
+        amount: 10000,
+        metadata: {}, // No invoiceId
+        last_payment_error: {
+          message: 'Card was declined',
+        },
+      };
+
+      // Simulate the handler logic
+      const { invoiceId } = paymentIntent.metadata as { invoiceId?: string };
+
+      if (!invoiceId) {
+        // Should not process
+      }
+
+      expect(mockPrisma.payment.findUnique).not.toHaveBeenCalled();
+      expect(mockPrisma.payment.create).not.toHaveBeenCalled();
     });
   });
 

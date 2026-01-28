@@ -16,6 +16,7 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { events, JobCompletedEventData } from '../services/events';
 import { logger } from '../lib/logger';
+import { sms } from '../services/sms';
 
 const router = Router();
 
@@ -377,16 +378,59 @@ router.post('/:id/complete', async (req: Request, res: Response) => {
     // Create invoice if requested
     if (data.payment?.createInvoice) {
       try {
+        const collectNow = data.payment?.collectNow === true;
         const invoice = await createInvoiceFromCompletion(
           orgId,
           id,
           job.customerId,
           data.workSummary,
-          job.organization
+          job.organization,
+          collectNow
         );
         results.invoiceId = invoice.id;
         results.invoiceTotal = invoice.total;
-        logger.info('Invoice created from completion', { jobId: id, invoiceId: invoice.id });
+
+        // If collectNow, include payment URL and send SMS
+        if (collectNow && invoice.paymentUrl) {
+          results.paymentUrl = invoice.paymentUrl;
+
+          // Send SMS with payment link if customer has phone
+          if (job.customer?.phone) {
+            try {
+              const customerName = [job.customer.firstName, job.customer.lastName]
+                .filter(Boolean)
+                .join(' ') || 'Customer';
+              const businessName = job.organization?.name || 'ServiceFlow';
+              const amount = (invoice.total / 100).toFixed(2);
+
+              await sms.sendTemplated({
+                organizationId: orgId,
+                customerId: job.customerId,
+                to: job.customer.phone,
+                templateType: 'invoice_sent',
+                variables: {
+                  customerName,
+                  amount,
+                  businessName,
+                  paymentLink: invoice.paymentUrl,
+                },
+                // Mark as urgent since technician is on-site
+                urgent: true,
+              });
+              results.paymentLinkSent = true;
+              logger.info('Payment link SMS sent from completion', { jobId: id, invoiceId: invoice.id });
+            } catch (smsError) {
+              logger.error('Failed to send payment SMS from completion', { jobId: id, error: smsError });
+              results.paymentLinkSent = false;
+              // Still include the URL even if SMS failed
+            }
+          } else {
+            logger.warn('Cannot send payment SMS - no customer phone', { jobId: id });
+            results.paymentLinkSent = false;
+          }
+        }
+
+        logger.info('Invoice created from completion', { jobId: id, invoiceId: invoice.id, collectNow });
       } catch (err) {
         logger.error('Failed to create invoice from completion', err);
         results.invoiceError = 'Failed to create invoice';
@@ -571,16 +615,25 @@ router.delete('/:id/photos/:photoId', async (req: Request, res: Response) => {
 // HELPER FUNCTIONS
 // ============================================
 
+interface InvoiceCreationResult {
+  id: string;
+  total: number;
+  paymentUrl?: string;
+}
+
 /**
  * Create an invoice from completion data
+ * If collectNow is true, the invoice is immediately set to 'sent' status
+ * and a payment URL is generated for on-site payment collection.
  */
 async function createInvoiceFromCompletion(
   organizationId: string,
   jobId: string,
   customerId: string,
   workSummary: z.infer<typeof workSummarySchema>,
-  organization: { settings: unknown }
-): Promise<{ id: string; total: number }> {
+  organization: { settings: unknown },
+  collectNow: boolean = false
+): Promise<InvoiceCreationResult> {
   // Build line items from parts used
   const lineItems = workSummary.partsUsed.map((part) => ({
     description: part.name,
@@ -610,13 +663,18 @@ async function createInvoiceFromCompletion(
   const tax = Math.round(subtotal * taxRate);
   const total = subtotal + tax;
 
+  // Set status based on collectNow flag
+  const status = collectNow ? 'sent' : 'draft';
+  const sentAt = collectNow ? new Date() : undefined;
+
   // Create the invoice
   const invoice = await prisma.invoice.create({
     data: {
       organizationId,
       jobId,
       customerId,
-      status: 'draft',
+      status,
+      sentAt,
       lineItems,
       subtotal,
       tax,
@@ -624,7 +682,18 @@ async function createInvoiceFromCompletion(
     },
   });
 
-  return { id: invoice.id, total: invoice.total };
+  const result: InvoiceCreationResult = {
+    id: invoice.id,
+    total: invoice.total,
+  };
+
+  // Generate payment URL if collecting now
+  if (collectNow) {
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    result.paymentUrl = `${appUrl}/pay/${invoice.id}`;
+  }
+
+  return result;
 }
 
 export default router;

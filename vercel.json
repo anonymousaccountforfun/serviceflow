@@ -4,5 +4,11 @@
   "installCommand": "pnpm install",
   "buildCommand": "pnpm turbo run build --filter=@serviceflow/web",
   "outputDirectory": "apps/web/.next",
-  "ignoreCommand": "exit 0"
+  "ignoreCommand": "exit 0",
+  "crons": [
+    {
+      "path": "/api/cron/weekly-report",
+      "schedule": "0 8 * * 1"
+    }
+  ]
 }

@@ -9,6 +9,8 @@ import { prisma } from '@serviceflow/database';
 import { paginationSchema } from '@serviceflow/shared';
 import { z } from 'zod';
 import { logger } from '../lib/logger';
+import { sms } from '../services/sms';
+import { updateAttributionStage } from '../services/attribution';
 
 const router = Router();
 
@@ -338,7 +340,38 @@ router.post('/:id/send', async (req, res) => {
       },
     });
 
-    // TODO: Send email/SMS with invoice link and payment options
+    // Send SMS with invoice/payment link
+    if (invoice.customer?.phone) {
+      const appUrl = process.env.APP_URL || 'http://localhost:3000';
+      const paymentLink = `${appUrl}/pay/${invoice.id}`;
+      const customerName = [invoice.customer.firstName, invoice.customer.lastName]
+        .filter(Boolean)
+        .join(' ') || 'Customer';
+      const businessName = invoice.organization?.name || 'Our business';
+      // Format amount: convert cents to dollars with 2 decimal places
+      const amount = (invoice.total / 100).toFixed(2);
+
+      try {
+        await sms.sendTemplated({
+          organizationId: orgId,
+          customerId: invoice.customerId,
+          to: invoice.customer.phone,
+          templateType: 'invoice_sent',
+          variables: {
+            customerName,
+            amount,
+            businessName,
+            paymentLink,
+          },
+        });
+        logger.info('Invoice SMS sent', { invoiceId: id, to: invoice.customer.phone });
+      } catch (smsError) {
+        // Log error but don't fail the request - invoice is still marked as sent
+        logger.error('Failed to send invoice SMS', { invoiceId: id, error: smsError });
+      }
+    } else {
+      logger.warn('Cannot send invoice SMS - no customer phone', { invoiceId: id });
+    }
 
     res.json({ success: true, data: updated });
   } catch (error) {
@@ -366,6 +399,10 @@ router.post('/:id/record-payment', async (req, res) => {
 
     const invoice = await prisma.invoice.findFirst({
       where: { id, organizationId: orgId },
+      include: {
+        customer: true,
+        organization: true,
+      },
     });
 
     if (!invoice) {
@@ -384,30 +421,92 @@ router.post('/:id/record-payment', async (req, res) => {
 
     const newPaidAmount = (invoice.paidAmount || 0) + amount;
     const isPaid = newPaidAmount >= invoice.total;
+    const currentUserId = req.auth!.userId;
 
-    const updated = await prisma.invoice.update({
-      where: { id },
-      data: {
-        paidAmount: newPaidAmount,
-        status: isPaid ? 'paid' : 'partial',
-        paidAt: isPaid ? new Date() : undefined,
-      },
-      include: {
-        job: { select: { id: true, title: true } },
-        customer: { select: { id: true, firstName: true, lastName: true } },
-      },
-    });
+    // Use transaction to ensure atomicity
+    const [payment, updated] = await prisma.$transaction([
+      // Create Payment record
+      prisma.payment.create({
+        data: {
+          invoiceId: id,
+          organizationId: orgId,
+          customerId: invoice.customerId,
+          amount,
+          method: (method || 'cash') as 'card' | 'ach' | 'cash' | 'check' | 'other',
+          status: 'succeeded',
+          note,
+          recordedBy: currentUserId,
+          processedAt: new Date(),
+        },
+      }),
+      // Update invoice
+      prisma.invoice.update({
+        where: { id },
+        data: {
+          paidAmount: newPaidAmount,
+          status: isPaid ? 'paid' : 'partial',
+          paidAt: isPaid ? new Date() : undefined,
+        },
+        include: {
+          job: { select: { id: true, title: true } },
+          customer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+        },
+      }),
+    ]);
 
-    // TODO: Log payment to payments table with method and note
+    logger.info('Payment recorded', { paymentId: payment.id, invoiceId: id, amount, method: method || 'cash' });
+
+    // Send payment confirmation SMS
+    if (invoice.customer?.phone) {
+      const customerName = [invoice.customer.firstName, invoice.customer.lastName]
+        .filter(Boolean)
+        .join(' ') || 'Customer';
+      const businessName = invoice.organization?.name || 'Our business';
+      const formattedAmount = (amount / 100).toFixed(2);
+
+      try {
+        await sms.sendTemplated({
+          organizationId: orgId,
+          customerId: invoice.customerId,
+          to: invoice.customer.phone,
+          templateType: 'payment_received',
+          variables: {
+            customerName,
+            amount: formattedAmount,
+            businessName,
+          },
+        });
+        logger.info('Payment confirmation SMS sent', { invoiceId: id, amount, to: invoice.customer.phone });
+      } catch (smsError) {
+        // Log error but don't fail - payment is already recorded
+        logger.error('Failed to send payment confirmation SMS', { invoiceId: id, error: smsError });
+      }
+    }
+
+    // Update attribution to payment_collected stage when fully paid
+    if (isPaid && invoice.jobId) {
+      try {
+        await updateAttributionStage({
+          jobId: invoice.jobId,
+          stage: 'payment_collected',
+          actualValue: newPaidAmount,
+        });
+      } catch (attrError) {
+        logger.warn('Failed to update attribution stage', { invoiceId: id, error: attrError });
+      }
+    }
 
     res.json({
       success: true,
       data: updated,
       payment: {
+        id: payment.id,
         amount,
         method: method || 'cash',
+        status: payment.status,
         note,
-        recordedAt: new Date(),
+        recordedBy: currentUserId,
+        recordedAt: payment.processedAt,
       },
     });
   } catch (error) {
@@ -415,6 +514,44 @@ router.post('/:id/record-payment', async (req, res) => {
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to record payment' },
+    });
+  }
+});
+
+// GET /api/invoices/:id/payments - Get payments for an invoice
+router.get('/:id/payments', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const orgId = req.auth!.organizationId;
+
+    // Verify invoice exists and belongs to org
+    const invoice = await prisma.invoice.findFirst({
+      where: { id, organizationId: orgId },
+      select: { id: true },
+    });
+
+    if (!invoice) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'E3001', message: 'Invoice not found' },
+      });
+    }
+
+    const payments = await prisma.payment.findMany({
+      where: { invoiceId: id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    res.json({
+      success: true,
+      data: payments,
+      meta: { total: payments.length },
+    });
+  } catch (error) {
+    logger.error('Error listing invoice payments', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to list payments' },
     });
   }
 });

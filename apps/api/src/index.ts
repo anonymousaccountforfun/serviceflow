@@ -40,6 +40,11 @@ import pushRoutes from './routes/push';
 import aiRoutes from './routes/ai';
 import billingRoutes from './routes/billing';
 import paymentRoutes from './routes/payments';
+import serviceTemplateRoutes from './routes/service-templates';
+import onboardingRoutes from './routes/onboarding';
+import cronRoutes from './routes/cron';
+import shareRoutes from './routes/share';
+import rescheduleRoutes from './routes/reschedule';
 
 // Event handlers
 import { registerAllHandlers } from './handlers';
@@ -111,9 +116,20 @@ app.use('/api/jobs', generalLimiter, requireAuth, jobCompletionRoutes); // Job c
 app.use('/api/push', generalLimiter, requireAuth, pushRoutes);
 app.use('/api/ai', generalLimiter, requireAuth, aiRoutes);
 app.use('/api/billing', generalLimiter, requireAuth, billingRoutes);
+app.use('/api/service-templates', generalLimiter, requireAuth, serviceTemplateRoutes);
+app.use('/api/onboarding', generalLimiter, requireAuth, onboardingRoutes);
 
 // Public payment routes (for customers paying invoices - no auth required)
 app.use('/api/payments', generalLimiter, paymentRoutes);
+
+// Cron routes (protected by CRON_SECRET, not user auth)
+app.use('/api/cron', generalLimiter, cronRoutes);
+
+// Share routes (public read, authenticated create/delete)
+app.use('/api/share', generalLimiter, shareRoutes);
+
+// Reschedule routes (public - validated by token)
+app.use('/api/reschedule', generalLimiter, rescheduleRoutes);
 
 // Sentry error handler (must be before custom error handler)
 app.use(sentryErrorHandler());

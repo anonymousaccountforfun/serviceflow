@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { prisma, Prisma } from '@serviceflow/database';
 import { createAppointmentSchema, rescheduleAppointmentSchema, paginationSchema } from '@serviceflow/shared';
 import { logger } from '../lib/logger';
+import { reminderScheduler } from '../services/reminder-scheduler';
 
 const router = Router();
 
@@ -170,6 +171,20 @@ router.post('/', async (req, res) => {
       },
     });
 
+    // Schedule appointment reminders
+    try {
+      await reminderScheduler.scheduleReminders(
+        appointment.id,
+        orgId,
+        job.customerId,
+        scheduledAt,
+        data.assignedToId
+      );
+    } catch (err) {
+      logger.error('Failed to schedule reminders', err);
+      // Don't fail the appointment creation if reminders fail
+    }
+
     res.status(201).json({ success: true, data: appointment });
   } catch (error) {
     logger.error('Error creating appointment', error);
@@ -310,6 +325,19 @@ router.post('/:id/reschedule', async (req, res) => {
       data: { scheduledAt },
     });
 
+    // Re-schedule reminders for new time
+    try {
+      await reminderScheduler.scheduleReminders(
+        id,
+        orgId,
+        appointment.customerId,
+        scheduledAt,
+        appointment.assignedToId
+      );
+    } catch (err) {
+      logger.error('Failed to reschedule reminders', err);
+    }
+
     res.json({ success: true, data: updated });
   } catch (error) {
     logger.error('Error rescheduling appointment', error);
@@ -343,12 +371,84 @@ router.delete('/:id', async (req, res) => {
       data: { status: 'canceled' },
     });
 
+    // Cancel any pending reminders
+    try {
+      await reminderScheduler.cancelReminders(id);
+    } catch (err) {
+      logger.error('Failed to cancel reminders', err);
+    }
+
     res.json({ success: true, data: { canceled: true } });
   } catch (error) {
     logger.error('Error canceling appointment', error);
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to cancel appointment' },
+    });
+  }
+});
+
+// POST /api/appointments/:id/no-show - Mark appointment as no-show
+router.post('/:id/no-show', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const orgId = req.auth!.organizationId;
+    const { reason } = req.body;
+
+    const appointment = await prisma.appointment.findFirst({
+      where: { id, organizationId: orgId },
+      include: {
+        customer: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'E3001', message: 'Appointment not found' },
+      });
+    }
+
+    // Can only mark scheduled/confirmed appointments as no-show
+    if (!['scheduled', 'confirmed'].includes(appointment.status)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'E2001', message: 'Can only mark scheduled or confirmed appointments as no-show' },
+      });
+    }
+
+    const updated = await prisma.appointment.update({
+      where: { id },
+      data: {
+        status: 'no_show',
+        noShowAt: new Date(),
+        noShowReason: reason,
+        notes: reason
+          ? `${appointment.notes || ''}\nNo-show: ${reason}`.trim()
+          : appointment.notes,
+      },
+      include: {
+        job: { select: { id: true, title: true } },
+        customer: { select: { firstName: true, lastName: true } },
+        assignedTo: { select: { firstName: true, lastName: true } },
+      },
+    });
+
+    // Cancel any pending reminders
+    try {
+      await reminderScheduler.cancelReminders(id);
+    } catch (err) {
+      logger.error('Failed to cancel reminders for no-show', err);
+    }
+
+    logger.info('Appointment marked as no-show', { appointmentId: id, reason });
+
+    res.json({ success: true, data: updated });
+  } catch (error) {
+    logger.error('Error marking appointment as no-show', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to mark appointment as no-show' },
     });
   }
 });

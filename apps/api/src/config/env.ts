@@ -35,6 +35,12 @@ interface EnvConfig {
   // Stripe (optional - payments disabled without)
   STRIPE_SECRET_KEY?: string;
   STRIPE_WEBHOOK_SECRET?: string;
+
+  // Resend (optional - email features disabled without)
+  RESEND_API_KEY?: string;
+
+  // Cron (optional - scheduled tasks disabled without)
+  CRON_SECRET?: string;
 }
 
 interface ValidationResult {
@@ -68,6 +74,7 @@ const FEATURE_VARS = [
   { names: ['VAPI_API_KEY'], feature: 'Voice AI' },
   { names: ['GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET'], feature: 'Google Reviews' },
   { names: ['STRIPE_SECRET_KEY'], feature: 'Payments' },
+  { names: ['RESEND_API_KEY'], feature: 'Email' },
 ] as const;
 
 /**
@@ -160,7 +167,7 @@ export function getEnv(key: keyof EnvConfig, defaultValue?: string): string {
 /**
  * Check if a feature is enabled (all its env vars are set)
  */
-export function isFeatureEnabled(feature: 'twilio' | 'openai' | 'vapi' | 'google' | 'stripe'): boolean {
+export function isFeatureEnabled(feature: 'twilio' | 'openai' | 'vapi' | 'google' | 'stripe' | 'resend'): boolean {
   switch (feature) {
     case 'twilio':
       return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
@@ -172,6 +179,8 @@ export function isFeatureEnabled(feature: 'twilio' | 'openai' | 'vapi' | 'google
       return !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
     case 'stripe':
       return !!process.env.STRIPE_SECRET_KEY;
+    case 'resend':
+      return !!process.env.RESEND_API_KEY;
     default:
       return false;
   }

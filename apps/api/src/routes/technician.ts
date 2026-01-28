@@ -24,16 +24,6 @@ interface Coordinates {
   lng: number;
 }
 
-interface TimeEntry {
-  id: string;
-  userId: string;
-  organizationId: string;
-  date: string; // YYYY-MM-DD
-  clockInAt: Date;
-  clockOutAt: Date | null;
-  breakMinutes: number;
-}
-
 interface JobWithDistance {
   id: string;
   title: string;
@@ -53,15 +43,8 @@ interface JobWithDistance {
 }
 
 // ============================================
-// IN-MEMORY TIME TRACKING STORE
-// (Should be replaced with database model in production)
+// TIME TRACKING HELPERS
 // ============================================
-
-const timeEntries: Map<string, TimeEntry> = new Map();
-
-function getTimeEntryKey(userId: string, date: string): string {
-  return `${userId}:${date}`;
-}
 
 function getTodayDate(): string {
   return new Date().toISOString().split('T')[0];
@@ -489,10 +472,14 @@ router.post('/clock-in', async (req, res) => {
     const userId = req.auth!.userId;
     const orgId = req.auth!.organizationId;
     const today = getTodayDate();
-    const key = getTimeEntryKey(userId, today);
 
     // Check if already clocked in
-    const existing = timeEntries.get(key);
+    const existing = await prisma.timeEntry.findUnique({
+      where: {
+        userId_date: { userId, date: today },
+      },
+    });
+
     if (existing && !existing.clockOutAt) {
       return res.status(400).json({
         success: false,
@@ -501,17 +488,15 @@ router.post('/clock-in', async (req, res) => {
     }
 
     // Create new time entry
-    const entry: TimeEntry = {
-      id: `te_${Date.now()}`,
-      userId,
-      organizationId: orgId,
-      date: today,
-      clockInAt: new Date(),
-      clockOutAt: null,
-      breakMinutes: 0,
-    };
-
-    timeEntries.set(key, entry);
+    const entry = await prisma.timeEntry.create({
+      data: {
+        userId,
+        organizationId: orgId,
+        date: today,
+        clockInAt: new Date(),
+        breakMinutes: 0,
+      },
+    });
 
     logger.info('Technician clocked in', { userId, date: today });
 
@@ -544,11 +529,15 @@ router.post('/clock-out', async (req, res) => {
   try {
     const userId = req.auth!.userId;
     const today = getTodayDate();
-    const key = getTimeEntryKey(userId, today);
     const breakMinutes = parseInt(req.body.breakMinutes) || 0;
 
     // Check if clocked in
-    const existing = timeEntries.get(key);
+    const existing = await prisma.timeEntry.findUnique({
+      where: {
+        userId_date: { userId, date: today },
+      },
+    });
+
     if (!existing) {
       return res.status(400).json({
         success: false,
@@ -563,25 +552,31 @@ router.post('/clock-out', async (req, res) => {
       });
     }
 
-    // Update time entry
-    existing.clockOutAt = new Date();
-    existing.breakMinutes = breakMinutes;
-    timeEntries.set(key, existing);
-
     // Calculate hours worked
-    const msWorked = existing.clockOutAt.getTime() - existing.clockInAt.getTime();
+    const clockOutAt = new Date();
+    const msWorked = clockOutAt.getTime() - existing.clockInAt.getTime();
     const hoursWorked = Math.round((msWorked / 3600000 - breakMinutes / 60) * 100) / 100;
+
+    // Update time entry
+    const updated = await prisma.timeEntry.update({
+      where: { id: existing.id },
+      data: {
+        clockOutAt,
+        breakMinutes,
+        hoursWorked,
+      },
+    });
 
     logger.info('Technician clocked out', { userId, date: today, hoursWorked });
 
     res.json({
       success: true,
       data: {
-        id: existing.id,
-        date: existing.date,
-        clockInAt: existing.clockInAt,
-        clockOutAt: existing.clockOutAt,
-        breakMinutes: existing.breakMinutes,
+        id: updated.id,
+        date: updated.date,
+        clockInAt: updated.clockInAt,
+        clockOutAt: updated.clockOutAt,
+        breakMinutes: updated.breakMinutes,
         hoursWorked,
         message: 'Successfully clocked out',
       },
@@ -626,28 +621,28 @@ router.get('/timesheet', async (req, res) => {
     const weekString = parsed.data.week;
     const { start, end } = getWeekDates(weekString);
 
-    // Collect time entries for the week
-    const weekEntries: TimeEntry[] = [];
+    // Get date strings for the week
+    const dateStrings: string[] = [];
     const current = new Date(start);
-
     while (current <= end) {
-      const dateStr = current.toISOString().split('T')[0];
-      const key = getTimeEntryKey(userId, dateStr);
-      const entry = timeEntries.get(key);
-      if (entry) {
-        weekEntries.push(entry);
-      }
+      dateStrings.push(current.toISOString().split('T')[0]);
       current.setDate(current.getDate() + 1);
     }
 
+    // Fetch time entries for the week from database
+    const weekEntries = await prisma.timeEntry.findMany({
+      where: {
+        userId,
+        date: { in: dateStrings },
+      },
+      orderBy: { date: 'asc' },
+    });
+
     // Calculate daily breakdown
     const dailyBreakdown = weekEntries.map(entry => {
-      let hoursWorked = 0;
-      if (entry.clockOutAt) {
-        const msWorked = entry.clockOutAt.getTime() - entry.clockInAt.getTime();
-        hoursWorked = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
-      } else {
-        // Still clocked in
+      let hoursWorked = entry.hoursWorked || 0;
+      if (!entry.clockOutAt) {
+        // Still clocked in - calculate live
         const msWorked = Date.now() - entry.clockInAt.getTime();
         hoursWorked = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
       }
@@ -720,9 +715,12 @@ router.get('/status', async (req, res) => {
   try {
     const userId = req.auth!.userId;
     const today = getTodayDate();
-    const key = getTimeEntryKey(userId, today);
 
-    const entry = timeEntries.get(key);
+    const entry = await prisma.timeEntry.findUnique({
+      where: {
+        userId_date: { userId, date: today },
+      },
+    });
 
     if (!entry) {
       return res.json({

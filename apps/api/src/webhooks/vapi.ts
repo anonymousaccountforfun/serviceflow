@@ -12,6 +12,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@serviceflow/database';
 import { events } from '../services/events';
 import { vapi } from '../services/vapi';
+import { createAttribution } from '../services/attribution';
 import { logger } from '../lib/logger';
 import crypto from 'crypto';
 
@@ -355,6 +356,30 @@ async function handleEndOfCall(payload: VapiWebhookPayload): Promise<void> {
       endedAt: new Date(),
     },
   });
+
+  // Create call attribution for AI-answered call
+  try {
+    // Calculate response time (time from call start to AI first response)
+    let responseTimeMs: number | undefined;
+    if (artifact?.messages && artifact.messages.length > 0) {
+      // First assistant message time in ms from call start
+      const firstAssistantMsg = artifact.messages.find((m) => m.role === 'assistant');
+      if (firstAssistantMsg) {
+        responseTimeMs = Math.round(firstAssistantMsg.time);
+      }
+    }
+
+    await createAttribution({
+      callId: callRecord.id,
+      organizationId: callRecord.organizationId,
+      customerId: callRecord.customerId || undefined,
+      recoveryMethod: 'ai_answered',
+      responseTimeMs,
+    });
+  } catch (attrError) {
+    // Don't fail the webhook if attribution fails
+    logger.warn('Failed to create call attribution', { callId: callRecord.id, error: attrError });
+  }
 
   // Emit call completed event
   await events.emit({

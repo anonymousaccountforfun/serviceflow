@@ -14,6 +14,8 @@ import {
   Moon,
   Check,
   Loader2,
+  FileText,
+  TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import { useAuthContext } from '../../../../lib/auth/context';
@@ -37,6 +39,10 @@ interface NotificationPreferences {
     start: string;
     end: string;
   };
+  emailReports: {
+    weeklyReport: boolean;
+    monthlyReport: boolean;
+  };
 }
 
 const DEFAULT_PREFERENCES: NotificationPreferences = {
@@ -57,6 +63,10 @@ const DEFAULT_PREFERENCES: NotificationPreferences = {
     enabled: false,
     start: '21:00',
     end: '07:00',
+  },
+  emailReports: {
+    weeklyReport: true,
+    monthlyReport: false,
   },
 };
 
@@ -187,6 +197,15 @@ export default function NotificationsSettingsPage() {
     const newPrefs = {
       ...preferences,
       quietHours: { ...preferences.quietHours, ...updates },
+    };
+    setPreferences(newPrefs);
+    savePreferences(newPrefs);
+  };
+
+  const updateEmailReports = (updates: Partial<NotificationPreferences['emailReports']>) => {
+    const newPrefs = {
+      ...preferences,
+      emailReports: { ...preferences.emailReports, ...updates },
     };
     setPreferences(newPrefs);
     savePreferences(newPrefs);
@@ -402,6 +421,64 @@ export default function NotificationsSettingsPage() {
               <AlertTriangle className="w-4 h-4" />
               <span>Emergency calls always come through</span>
             </div>
+          </div>
+        </section>
+
+        {/* Email Reports Section */}
+        <section>
+          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-3">
+            Email Reports
+          </h2>
+          <p className="text-gray-400 text-sm mb-4">
+            Get regular reports on your ServiceFlow impact delivered to your inbox.
+          </p>
+          <div className="bg-surface rounded-xl divide-y divide-white/10">
+            {/* Weekly Report */}
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-green-500/20 text-green-400">
+                  <TrendingUp className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-white font-medium">Weekly ROI Report</p>
+                  <p className="text-sm text-gray-500">
+                    Every Monday at 8 AM with your weekly impact metrics
+                  </p>
+                </div>
+              </div>
+              <Toggle
+                enabled={preferences.emailReports.weeklyReport}
+                onChange={(v) => updateEmailReports({ weeklyReport: v })}
+              />
+            </div>
+
+            {/* Monthly Report */}
+            <div className="flex items-center justify-between p-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-lg bg-blue-500/20 text-blue-400">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <p className="text-white font-medium">Monthly Summary</p>
+                  <p className="text-sm text-gray-500">
+                    First of each month with a complete monthly breakdown
+                  </p>
+                </div>
+              </div>
+              <Toggle
+                enabled={preferences.emailReports.monthlyReport}
+                onChange={(v) => updateEmailReports({ monthlyReport: v })}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+            <p className="text-sm text-green-300">
+              Reports show your ROI, calls recovered, revenue captured, and time saved.{' '}
+              <a href="/dashboard/impact" className="text-green-400 underline hover:no-underline">
+                Preview your impact dashboard
+              </a>
+            </p>
           </div>
         </section>
       </div>

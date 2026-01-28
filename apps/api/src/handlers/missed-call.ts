@@ -9,6 +9,7 @@ import { prisma } from '@serviceflow/database';
 import { events, DomainEvent, CallMissedEventData } from '../services/events';
 import { jobQueue, Job, JobPayload } from '../services/job-queue';
 import { sms } from '../services/sms';
+import { createAttribution } from '../services/attribution';
 import { isBusinessHours, TIMING } from '@serviceflow/shared';
 import { logger } from '../lib/logger';
 
@@ -180,6 +181,19 @@ async function processMissedCallTextback(job: Job<MissedCallTextbackPayload>): P
           textBackMessageId: result.messageId,
         },
       });
+
+      // Create call attribution for text-back recovery
+      try {
+        await createAttribution({
+          callId,
+          organizationId,
+          customerId: call.customer.id,
+          recoveryMethod: 'text_back',
+        });
+      } catch (attrError) {
+        // Don't fail the text-back if attribution fails
+        logger.warn('Failed to create call attribution', { callId, error: attrError });
+      }
 
       logger.info('Text-back sent successfully', { callId, messageId: result.messageId });
     } else {

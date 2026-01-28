@@ -234,6 +234,19 @@ describe('Technician Routes', () => {
     });
 
     it('should record clock-in successfully', async () => {
+      // Mock: no existing time entry
+      mockPrisma.timeEntry.findUnique.mockResolvedValue(null);
+      // Mock: create returns new entry
+      mockPrisma.timeEntry.create.mockResolvedValue({
+        id: 'te_123',
+        userId: testUser.id,
+        organizationId: testUser.organizationId,
+        date: new Date().toISOString().split('T')[0],
+        clockInAt: new Date(),
+        clockOutAt: null,
+        breakMinutes: 0,
+      });
+
       const response = await request(app)
         .post('/api/technician/clock-in')
         .set(authHeader)
@@ -243,9 +256,6 @@ describe('Technician Routes', () => {
       expect(response.body.data.clockInAt).toBeDefined();
       expect(response.body.data.message).toContain('clocked in');
     });
-
-    // Note: Due to in-memory storage, repeated clock-in tests may conflict
-    // In production, each test should have isolated state
   });
 
   describe('POST /api/technician/clock-out', () => {
@@ -258,9 +268,8 @@ describe('Technician Routes', () => {
     });
 
     it('should return error if not clocked in', async () => {
-      // Create a fresh user that hasn't clocked in
-      const freshUser = testData.user({ id: 'fresh_user_123', clerkId: 'clerk_fresh' });
-      mockPrisma.user.findUnique.mockResolvedValue(freshUser);
+      // Mock: no existing time entry
+      mockPrisma.timeEntry.findUnique.mockResolvedValue(null);
 
       const response = await request(app)
         .post('/api/technician/clock-out')
@@ -292,6 +301,18 @@ describe('Technician Routes', () => {
     });
 
     it('should return weekly timesheet', async () => {
+      // Mock time entries for the week
+      mockPrisma.timeEntry.findMany.mockResolvedValue([
+        {
+          id: 'te_1',
+          userId: testUser.id,
+          date: '2026-01-20',
+          clockInAt: new Date('2026-01-20T08:00:00Z'),
+          clockOutAt: new Date('2026-01-20T17:00:00Z'),
+          breakMinutes: 30,
+          hoursWorked: 8.5,
+        },
+      ]);
       mockPrisma.job.groupBy.mockResolvedValue([
         { status: 'completed', _count: 5 },
         { status: 'scheduled', _count: 2 },
@@ -330,6 +351,9 @@ describe('Technician Routes', () => {
     });
 
     it('should return current clock-in status', async () => {
+      // Mock: no existing time entry (not clocked in)
+      mockPrisma.timeEntry.findUnique.mockResolvedValue(null);
+
       const response = await request(app)
         .get('/api/technician/status')
         .set(authHeader)

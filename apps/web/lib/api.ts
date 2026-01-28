@@ -234,6 +234,15 @@ class ApiClient {
     return this.request<Appointment>('POST', `/api/appointments/${id}/reschedule`, data);
   }
 
+  async updateAppointment(id: string, data: { assignedToId?: string | null; status?: string; notes?: string }) {
+    return this.request<Appointment>('PATCH', `/api/appointments/${id}`, data);
+  }
+
+  // Team
+  async getTeam() {
+    return this.request<{ members: any[] }>('GET', '/api/team');
+  }
+
   // Conversations
   async getConversations(params?: { status?: string; page?: number }) {
     const searchParams = new URLSearchParams();

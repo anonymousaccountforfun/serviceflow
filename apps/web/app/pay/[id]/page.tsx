@@ -33,6 +33,11 @@ interface Invoice {
   total: number;
   dueDate: string;
   paidAt: string | null;
+  // Deposit workflow fields
+  isDeposit: boolean;
+  depositRequired: number | null;
+  depositPaid: boolean;
+  depositPaidAt: string | null;
   customer: {
     name: string;
     email: string;
@@ -113,7 +118,7 @@ function PaymentForm({
         ) : (
           <>
             <CreditCard className="w-5 h-5" />
-            Pay ${(invoice.total / 100).toFixed(2)}
+            {invoice.isDeposit ? 'Pay Deposit' : 'Pay'} ${(invoice.total / 100).toFixed(2)}
           </>
         )}
       </button>
@@ -145,12 +150,21 @@ function InvoiceDetails({ invoice }: { invoice: Invoice }) {
     <div className="bg-surface rounded-xl p-6 space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-500">Invoice</p>
+          <p className="text-sm text-gray-500">
+            {invoice.isDeposit ? 'Deposit Request' : 'Invoice'}
+          </p>
           <p className="text-lg font-semibold text-white">#{invoice.invoiceNumber}</p>
         </div>
-        <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/20 text-amber-400 rounded-full text-sm">
-          <Clock className="w-4 h-4" />
-          Due {formatDate(invoice.dueDate)}
+        <div className="flex flex-col items-end gap-2">
+          {invoice.isDeposit && (
+            <div className="flex items-center gap-2 px-3 py-1 bg-purple-500/20 text-purple-400 rounded-full text-sm">
+              Deposit
+            </div>
+          )}
+          <div className="flex items-center gap-2 px-3 py-1 bg-amber-500/20 text-amber-400 rounded-full text-sm">
+            <Clock className="w-4 h-4" />
+            Due {formatDate(invoice.dueDate)}
+          </div>
         </div>
       </div>
 
@@ -193,10 +207,20 @@ function InvoiceDetails({ invoice }: { invoice: Invoice }) {
           </div>
         )}
         <div className="flex justify-between text-lg font-semibold pt-2 border-t border-white/10">
-          <p className="text-white">Total</p>
+          <p className="text-white">
+            {invoice.isDeposit ? 'Deposit Due' : 'Total Due'}
+          </p>
           <p className="text-accent">{formatCurrency(invoice.total)}</p>
         </div>
       </div>
+
+      {invoice.isDeposit && (
+        <div className="p-4 bg-purple-500/10 border border-purple-500/30 rounded-lg">
+          <p className="text-purple-300 text-sm">
+            This is a deposit payment to secure your service. The remaining balance will be due upon completion.
+          </p>
+        </div>
+      )}
     </div>
   );
 }
@@ -208,9 +232,13 @@ function PaymentSuccess({ invoice }: { invoice: Invoice }) {
         <CheckCircle className="w-10 h-10 text-green-400" />
       </div>
       <div>
-        <h1 className="text-2xl font-bold text-white mb-2">Payment Successful!</h1>
+        <h1 className="text-2xl font-bold text-white mb-2">
+          {invoice.isDeposit ? 'Deposit Received!' : 'Payment Successful!'}
+        </h1>
         <p className="text-gray-400">
-          Thank you for your payment. A receipt has been sent to {invoice.customer.email}.
+          {invoice.isDeposit
+            ? `Thank you for your deposit. Your service is now confirmed. A receipt has been sent to ${invoice.customer.email}.`
+            : `Thank you for your payment. A receipt has been sent to ${invoice.customer.email}.`}
         </p>
       </div>
       <div className="bg-surface rounded-xl p-6">
@@ -218,7 +246,9 @@ function PaymentSuccess({ invoice }: { invoice: Invoice }) {
           <div className="flex items-center gap-3">
             <FileText className="w-5 h-5 text-accent" />
             <div>
-              <p className="text-white font-medium">Invoice #{invoice.invoiceNumber}</p>
+              <p className="text-white font-medium">
+                {invoice.isDeposit ? 'Deposit' : 'Invoice'} #{invoice.invoiceNumber}
+              </p>
               <p className="text-sm text-gray-500">{invoice.business.name}</p>
             </div>
           </div>
@@ -372,9 +402,13 @@ export default function PayInvoicePage() {
     <div className="min-h-screen bg-background py-8 px-4">
       <div className="max-w-2xl mx-auto">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-white mb-2">Pay Invoice</h1>
+          <h1 className="text-2xl font-bold text-white mb-2">
+            {invoice.isDeposit ? 'Pay Deposit' : 'Pay Invoice'}
+          </h1>
           <p className="text-gray-400">
-            Complete your payment securely with your credit or debit card.
+            {invoice.isDeposit
+              ? 'Secure your service with this deposit payment.'
+              : 'Complete your payment securely with your credit or debit card.'}
           </p>
         </div>
 

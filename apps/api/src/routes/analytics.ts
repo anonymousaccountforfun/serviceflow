@@ -20,6 +20,12 @@ import {
   SourceGroupBy,
   DateRangeQuery,
 } from '../types';
+import {
+  calculateROI,
+  getFunnelMetrics,
+  calculateCounterfactual,
+  getROISummary,
+} from '../services/roi-calculator';
 
 const router = Router();
 
@@ -793,6 +799,315 @@ router.get('/ai-roi', async (req, res) => {
     res.status(500).json({
       success: false,
       error: { code: 'E9001', message: 'Failed to fetch AI ROI analytics' },
+    });
+  }
+});
+
+/**
+ * GET /api/analytics/roi
+ * Full ROI metrics using call attribution data
+ */
+router.get('/roi', async (req, res) => {
+  try {
+    const orgId = req.auth!.organizationId;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
+    const { start, end } = getDateRange(period, startDate, endDate);
+
+    const metrics = await calculateROI(orgId, start, end);
+
+    res.json({
+      success: true,
+      data: metrics,
+    });
+  } catch (error) {
+    logger.error('Error fetching ROI analytics', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch ROI analytics' },
+    });
+  }
+});
+
+/**
+ * GET /api/analytics/roi/summary
+ * Quick ROI summary for dashboard cards
+ */
+router.get('/roi/summary', async (req, res) => {
+  try {
+    const orgId = req.auth!.organizationId;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
+    const { start, end } = getDateRange(period, startDate, endDate);
+
+    const summary = await getROISummary(orgId, start, end);
+
+    res.json({
+      success: true,
+      data: summary,
+    });
+  } catch (error) {
+    logger.error('Error fetching ROI summary', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch ROI summary' },
+    });
+  }
+});
+
+/**
+ * GET /api/analytics/funnel
+ * Funnel metrics showing conversion through stages
+ */
+router.get('/funnel', async (req, res) => {
+  try {
+    const orgId = req.auth!.organizationId;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
+    const { start, end } = getDateRange(period, startDate, endDate);
+
+    const funnel = await getFunnelMetrics(orgId, start, end);
+
+    res.json({
+      success: true,
+      data: {
+        period: { start, end },
+        funnel,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching funnel analytics', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch funnel analytics' },
+    });
+  }
+});
+
+/**
+ * GET /api/analytics/counterfactual
+ * Counterfactual metrics (what would have happened without ServiceFlow)
+ */
+router.get('/counterfactual', async (req, res) => {
+  try {
+    const orgId = req.auth!.organizationId;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
+    const { start, end } = getDateRange(period, startDate, endDate);
+
+    const counterfactual = await calculateCounterfactual(orgId, start, end);
+
+    res.json({
+      success: true,
+      data: {
+        period: { start, end },
+        ...counterfactual,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching counterfactual analytics', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch counterfactual analytics' },
+    });
+  }
+});
+
+/**
+ * GET /api/analytics/no-shows
+ * No-show tracking and analytics
+ */
+router.get('/no-shows', async (req, res) => {
+  try {
+    const orgId = req.auth!.organizationId;
+    const { period, startDate, endDate } = req.query as DateRangeQuery;
+    const { start, end } = getDateRange(period, startDate, endDate);
+
+    // Calculate previous period for comparison
+    const periodLength = end.getTime() - start.getTime();
+    const previousStart = new Date(start.getTime() - periodLength);
+    const previousEnd = start;
+
+    const [
+      // Current period
+      totalAppointments,
+      noShowAppointments,
+      confirmedAppointments,
+      // Previous period
+      prevTotalAppointments,
+      prevNoShowAppointments,
+      // Recent no-shows with details
+      recentNoShows,
+      // No-shows by day of week (for patterns)
+      noShowsByDay,
+      // Average job value of no-shows (lost revenue)
+      noShowsValue,
+    ] = await Promise.all([
+      // Total scheduled appointments in period
+      prisma.appointment.count({
+        where: {
+          organizationId: orgId,
+          scheduledAt: { gte: start, lte: end },
+          status: { notIn: ['canceled'] },
+        },
+      }),
+      // No-show appointments in period
+      prisma.appointment.count({
+        where: {
+          organizationId: orgId,
+          noShowAt: { gte: start, lte: end },
+          status: 'no_show',
+        },
+      }),
+      // Confirmed appointments (shows customer engagement)
+      prisma.appointment.count({
+        where: {
+          organizationId: orgId,
+          scheduledAt: { gte: start, lte: end },
+          status: 'confirmed',
+        },
+      }),
+      // Previous period total
+      prisma.appointment.count({
+        where: {
+          organizationId: orgId,
+          scheduledAt: { gte: previousStart, lte: previousEnd },
+          status: { notIn: ['canceled'] },
+        },
+      }),
+      // Previous period no-shows
+      prisma.appointment.count({
+        where: {
+          organizationId: orgId,
+          noShowAt: { gte: previousStart, lte: previousEnd },
+          status: 'no_show',
+        },
+      }),
+      // Recent no-shows with customer details
+      prisma.appointment.findMany({
+        where: {
+          organizationId: orgId,
+          status: 'no_show',
+          noShowAt: { gte: start, lte: end },
+        },
+        orderBy: { noShowAt: 'desc' },
+        take: 10,
+        include: {
+          customer: { select: { id: true, firstName: true, lastName: true, phone: true } },
+          job: { select: { id: true, title: true, estimatedValue: true } },
+        },
+      }),
+      // No-shows grouped by day of week for pattern analysis
+      prisma.$queryRaw`
+        SELECT
+          EXTRACT(DOW FROM "scheduledAt") as day_of_week,
+          COUNT(*) as count
+        FROM "Appointment"
+        WHERE "organizationId" = ${orgId}
+          AND "status" = 'no_show'
+          AND "noShowAt" >= ${start}
+          AND "noShowAt" <= ${end}
+        GROUP BY EXTRACT(DOW FROM "scheduledAt")
+        ORDER BY day_of_week
+      ` as Promise<Array<{ day_of_week: number; count: bigint }>>,
+      // Estimated value of no-show appointments
+      prisma.job.aggregate({
+        where: {
+          organizationId: orgId,
+          appointments: {
+            some: {
+              status: 'no_show',
+              noShowAt: { gte: start, lte: end },
+            },
+          },
+        },
+        _sum: { estimatedValue: true },
+      }),
+    ]);
+
+    // Calculate rates
+    const noShowRate = totalAppointments > 0
+      ? Math.round((noShowAppointments / totalAppointments) * 100)
+      : 0;
+    const prevNoShowRate = prevTotalAppointments > 0
+      ? Math.round((prevNoShowAppointments / prevTotalAppointments) * 100)
+      : 0;
+    const confirmationRate = totalAppointments > 0
+      ? Math.round((confirmedAppointments / totalAppointments) * 100)
+      : 0;
+
+    // Transform day of week data
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const noShowsByDayOfWeek = dayNames.map((name, index) => {
+      const dayData = (noShowsByDay as any[]).find(d => Number(d.day_of_week) === index);
+      return {
+        day: name,
+        count: dayData ? Number(dayData.count) : 0,
+      };
+    });
+
+    // Find peak no-show day
+    const peakNoShowDay = noShowsByDayOfWeek.reduce((max, day) =>
+      day.count > max.count ? day : max,
+      { day: 'N/A', count: 0 }
+    );
+
+    // Calculate lost revenue
+    const lostRevenue = noShowsValue._sum.estimatedValue || 0;
+
+    // Suggestions based on data
+    const suggestions: string[] = [];
+    if (noShowRate > 15) {
+      suggestions.push('Consider sending reminder texts 2 hours before appointments');
+    }
+    if (confirmationRate < 50) {
+      suggestions.push('Enable appointment confirmation requests to improve show rates');
+    }
+    if (peakNoShowDay.count > 2) {
+      suggestions.push(`${peakNoShowDay.day}s have the most no-shows - consider overbooking or buffer time`);
+    }
+    if (lostRevenue > 50000) { // $500+
+      suggestions.push('Consider requiring deposits for new customers to reduce no-shows');
+    }
+
+    res.json({
+      success: true,
+      data: {
+        period: { start, end },
+        summary: {
+          totalAppointments,
+          noShows: noShowAppointments,
+          noShowRate,
+          noShowRateChange: noShowRate - prevNoShowRate,
+          confirmed: confirmedAppointments,
+          confirmationRate,
+          lostRevenue,
+          lostRevenueFormatted: `$${(lostRevenue / 100).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+        },
+        patterns: {
+          byDayOfWeek: noShowsByDayOfWeek,
+          peakNoShowDay: peakNoShowDay.day,
+        },
+        recentNoShows: recentNoShows.map(apt => ({
+          id: apt.id,
+          scheduledAt: apt.scheduledAt,
+          noShowAt: apt.noShowAt,
+          reason: apt.noShowReason,
+          customer: {
+            id: apt.customer.id,
+            name: `${apt.customer.firstName || ''} ${apt.customer.lastName || ''}`.trim(),
+            phone: apt.customer.phone,
+          },
+          job: apt.job ? {
+            id: apt.job.id,
+            title: apt.job.title,
+            estimatedValue: apt.job.estimatedValue,
+          } : null,
+        })),
+        suggestions,
+      },
+    });
+  } catch (error) {
+    logger.error('Error fetching no-show analytics', error);
+    res.status(500).json({
+      success: false,
+      error: { code: 'E9001', message: 'Failed to fetch no-show analytics' },
     });
   }
 });

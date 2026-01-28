@@ -15,9 +15,13 @@ import {
   Flame,
   Zap,
   Home,
+  Search,
+  MapPin,
+  AlertCircle,
 } from 'lucide-react';
 import { useAuthContext } from '../../lib/auth/context';
 import { toast } from 'sonner';
+import { useOnboardingPersistence, type OnboardingProgress } from '../../hooks/useOnboardingPersistence';
 
 // Step indicator component
 function StepIndicator({ currentStep, steps }: { currentStep: number; steps: { icon: any; label: string }[] }) {
@@ -123,14 +127,245 @@ function BusinessProfileStep({
   );
 }
 
+// Available phone number interface
+interface AvailableNumber {
+  phoneNumber: string;
+  friendlyName: string;
+  locality: string | null;
+  region: string | null;
+}
+
+// Provisioned phone number interface
+interface ProvisionedNumber {
+  id: string;
+  number: string;
+  label: string;
+}
+
 // Step 2: Phone Setup
 function PhoneSetupStep({
   data,
   onChange,
 }: {
-  data: { areaCode: string; phoneNumber: string; useExisting: boolean };
-  onChange: (data: { areaCode: string; phoneNumber: string; useExisting: boolean }) => void;
+  data: {
+    areaCode: string;
+    phoneNumber: string;
+    useExisting: boolean;
+    selectedNumber: string;
+    provisionedNumber: ProvisionedNumber | null;
+  };
+  onChange: (data: {
+    areaCode: string;
+    phoneNumber: string;
+    useExisting: boolean;
+    selectedNumber: string;
+    provisionedNumber: ProvisionedNumber | null;
+  }) => void;
 }) {
+  const [availableNumbers, setAvailableNumbers] = useState<AvailableNumber[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [hasSearched, setHasSearched] = useState(false);
+  const [isProvisioning, setIsProvisioning] = useState(false);
+  const [provisionError, setProvisionError] = useState<string | null>(null);
+  const [isConfiguringExisting, setIsConfiguringExisting] = useState(false);
+  const [existingConfigError, setExistingConfigError] = useState<string | null>(null);
+  const [existingConfigured, setExistingConfigured] = useState(false);
+
+  // Search for numbers when area code is complete
+  useEffect(() => {
+    if (data.areaCode.length === 3 && !data.useExisting) {
+      searchNumbers(data.areaCode);
+    } else {
+      setAvailableNumbers([]);
+      setHasSearched(false);
+      setSearchError(null);
+    }
+  }, [data.areaCode, data.useExisting]);
+
+  const searchNumbers = async (areaCode: string) => {
+    setIsSearching(true);
+    setSearchError(null);
+    setAvailableNumbers([]);
+
+    try {
+      const response = await fetch(`/api/phone-numbers/search?areaCode=${areaCode}`);
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error?.message || 'Failed to search numbers');
+      }
+
+      setAvailableNumbers(result.data || []);
+      setHasSearched(true);
+
+      // Auto-select first number if available
+      if (result.data?.length > 0 && !data.selectedNumber) {
+        onChange({ ...data, selectedNumber: result.data[0].phoneNumber });
+      }
+    } catch (error) {
+      console.error('Phone search error:', error);
+      setSearchError(error instanceof Error ? error.message : 'Failed to search numbers');
+      setHasSearched(true);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  const formatPhoneDisplay = (phone: string) => {
+    // Format +1XXXXXXXXXX to (XXX) XXX-XXXX
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 11 && digits.startsWith('1')) {
+      return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`;
+    }
+    return phone;
+  };
+
+  // Validate E.164 format: +1XXXXXXXXXX for US numbers or +XXXX for international
+  const isValidPhoneNumber = (phone: string) => {
+    const digits = phone.replace(/\D/g, '');
+    // Accept 10 digits (US without country code), 11 digits (US with 1), or 11+ for international
+    return digits.length >= 10 && digits.length <= 15;
+  };
+
+  const configureExistingNumber = async () => {
+    if (!data.phoneNumber || isConfiguringExisting) return;
+
+    if (!isValidPhoneNumber(data.phoneNumber)) {
+      setExistingConfigError('Please enter a valid phone number (e.g., +1 555 123 4567)');
+      return;
+    }
+
+    setIsConfiguringExisting(true);
+    setExistingConfigError(null);
+
+    try {
+      const response = await fetch('/api/phone-numbers/use-existing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: data.phoneNumber,
+          label: 'External Business Line',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        if (result.error?.code === 'E4005') {
+          throw new Error('This number is already registered to another account.');
+        }
+        throw new Error(result.error?.message || 'Failed to configure number');
+      }
+
+      // Update with configured number
+      onChange({
+        ...data,
+        provisionedNumber: {
+          id: result.data.id,
+          number: result.data.number,
+          label: result.data.label,
+        },
+      });
+      setExistingConfigured(true);
+    } catch (error) {
+      console.error('Configure existing number error:', error);
+      setExistingConfigError(error instanceof Error ? error.message : 'Unable to configure number. Please try again.');
+    } finally {
+      setIsConfiguringExisting(false);
+    }
+  };
+
+  const provisionNumber = async () => {
+    if (!data.selectedNumber || isProvisioning) return;
+
+    setIsProvisioning(true);
+    setProvisionError(null);
+
+    try {
+      const response = await fetch('/api/phone-numbers/provision', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phoneNumber: data.selectedNumber,
+          label: 'Main Business Line',
+        }),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        // Handle specific error for number not available
+        if (result.error?.code === 'E4003') {
+          throw new Error('Someone grabbed this number. Please select another.');
+        }
+        throw new Error(result.error?.message || 'Failed to provision number');
+      }
+
+      // Update with provisioned number
+      onChange({
+        ...data,
+        provisionedNumber: {
+          id: result.data.id,
+          number: result.data.number,
+          label: result.data.label,
+        },
+      });
+    } catch (error) {
+      console.error('Provision error:', error);
+      setProvisionError(error instanceof Error ? error.message : 'Unable to provision number. Please try again.');
+      // Clear selection so user picks another
+      onChange({ ...data, selectedNumber: '' });
+    } finally {
+      setIsProvisioning(false);
+    }
+  };
+
+  // If already provisioned, show success state
+  if (data.provisionedNumber) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h2 className="text-2xl font-bold text-white mb-2">Phone number ready!</h2>
+          <p className="text-gray-400">Your business phone is set up and ready to use.</p>
+        </div>
+
+        <div className="p-6 bg-green-500/10 border border-green-500/30 rounded-lg">
+          <div className="flex items-center gap-4">
+            <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+              <Check className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <p className="text-green-400 font-medium text-sm mb-1">Your new business number</p>
+              <p className="text-white font-mono text-2xl">
+                {formatPhoneDisplay(data.provisionedNumber.number)}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <p className="text-gray-400 text-sm">
+          This number is now configured to receive calls and texts for your business.
+          You can update settings anytime from your dashboard.
+        </p>
+
+        <button
+          type="button"
+          onClick={() => onChange({
+            areaCode: '',
+            phoneNumber: '',
+            useExisting: false,
+            selectedNumber: '',
+            provisionedNumber: null,
+          })}
+          className="text-accent hover:text-accent/80 text-sm transition-colors"
+        >
+          Choose a different number
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div>
@@ -142,7 +377,7 @@ function PhoneSetupStep({
         <div className="grid grid-cols-2 gap-3">
           <button
             type="button"
-            onClick={() => onChange({ ...data, useExisting: false })}
+            onClick={() => onChange({ ...data, useExisting: false, selectedNumber: '', provisionedNumber: null })}
             className={`
               p-4 rounded-lg border transition-all text-left
               ${!data.useExisting
@@ -157,7 +392,7 @@ function PhoneSetupStep({
 
           <button
             type="button"
-            onClick={() => onChange({ ...data, useExisting: true })}
+            onClick={() => onChange({ ...data, useExisting: true, selectedNumber: '', provisionedNumber: null })}
             className={`
               p-4 rounded-lg border transition-all text-left
               ${data.useExisting
@@ -172,37 +407,258 @@ function PhoneSetupStep({
         </div>
 
         {!data.useExisting ? (
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Preferred Area Code
-            </label>
-            <input
-              type="text"
-              value={data.areaCode}
-              onChange={(e) => onChange({ ...data, areaCode: e.target.value.replace(/\D/g, '').slice(0, 3) })}
-              placeholder="e.g., 512"
-              maxLength={3}
-              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
-            />
-            <p className="text-sm text-gray-500 mt-2">
-              We'll find an available number in this area code.
-            </p>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Enter Area Code
+              </label>
+              <div className="relative">
+                <input
+                  type="text"
+                  value={data.areaCode}
+                  onChange={(e) => onChange({
+                    ...data,
+                    areaCode: e.target.value.replace(/\D/g, '').slice(0, 3),
+                    selectedNumber: ''
+                  })}
+                  placeholder="e.g., 512"
+                  maxLength={3}
+                  className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
+                />
+                {isSearching && (
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                    <Loader2 className="w-5 h-5 text-accent animate-spin" />
+                  </div>
+                )}
+              </div>
+              {data.areaCode.length < 3 && (
+                <p className="text-sm text-gray-500 mt-2">
+                  Enter a 3-digit area code to search for available numbers.
+                </p>
+              )}
+            </div>
+
+            {/* Search Results */}
+            {isSearching && (
+              <div className="flex items-center justify-center py-8">
+                <div className="text-center">
+                  <Loader2 className="w-8 h-8 text-accent animate-spin mx-auto mb-2" />
+                  <p className="text-gray-400 text-sm">Searching for available numbers...</p>
+                </div>
+              </div>
+            )}
+
+            {searchError && (
+              <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-red-400 font-medium">Search failed</p>
+                  <p className="text-red-400/80 text-sm">{searchError}</p>
+                </div>
+              </div>
+            )}
+
+            {hasSearched && !isSearching && availableNumbers.length === 0 && !searchError && (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-amber-400 font-medium">No numbers available</p>
+                  <p className="text-amber-400/80 text-sm">
+                    Try a different area code. Some areas have limited availability.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {availableNumbers.length > 0 && !isSearching && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-gray-300">
+                    Select a number ({availableNumbers.length} available)
+                  </p>
+                  <div className="grid gap-2 max-h-64 overflow-y-auto">
+                    {availableNumbers.map((num) => (
+                      <button
+                        key={num.phoneNumber}
+                        type="button"
+                        onClick={() => onChange({ ...data, selectedNumber: num.phoneNumber })}
+                        disabled={isProvisioning}
+                        className={`
+                          p-4 rounded-lg border transition-all text-left flex items-center gap-4
+                          ${data.selectedNumber === num.phoneNumber
+                            ? 'bg-accent/20 border-accent'
+                            : 'bg-navy-900 border-white/10 hover:border-white/20'
+                          }
+                          ${isProvisioning ? 'opacity-50 cursor-not-allowed' : ''}
+                        `}
+                      >
+                        <div className={`
+                          w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0
+                          ${data.selectedNumber === num.phoneNumber
+                            ? 'border-accent bg-accent'
+                            : 'border-gray-500'
+                          }
+                        `}>
+                          {data.selectedNumber === num.phoneNumber && (
+                            <Check className="w-3 h-3 text-white" />
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-mono text-lg">
+                            {formatPhoneDisplay(num.phoneNumber)}
+                          </p>
+                          {(num.locality || num.region) && (
+                            <p className="text-gray-400 text-sm flex items-center gap-1 mt-1">
+                              <MapPin className="w-3 h-3" />
+                              {[num.locality, num.region].filter(Boolean).join(', ')}
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Provision Error */}
+                {provisionError && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-lg flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-red-400 font-medium">Provisioning failed</p>
+                      <p className="text-red-400/80 text-sm">{provisionError}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Get This Number Button */}
+                {data.selectedNumber && (
+                  <button
+                    type="button"
+                    onClick={provisionNumber}
+                    disabled={isProvisioning}
+                    className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isProvisioning ? (
+                      <>
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                        Provisioning number...
+                      </>
+                    ) : (
+                      <>
+                        <Phone className="w-5 h-5" />
+                        Get This Number
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ) : existingConfigured && data.provisionedNumber !== null ? (
+          /* Success state for existing number */
+          <div className="space-y-4">
+            <div className="p-6 bg-green-500/10 border border-green-500/30 rounded-lg">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 rounded-full bg-green-500 flex items-center justify-center flex-shrink-0">
+                  <Check className="w-6 h-6 text-white" />
+                </div>
+                <div>
+                  <p className="text-green-400 font-medium text-sm mb-1">Number registered</p>
+                  <p className="text-white font-mono text-2xl">
+                    {formatPhoneDisplay((data.provisionedNumber as ProvisionedNumber).number)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Webhook Setup Instructions */}
+            <div className="p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg">
+              <p className="text-amber-400 font-medium mb-2">Important: Configure Twilio Webhooks</p>
+              <p className="text-amber-400/80 text-sm mb-3">
+                To receive calls and texts, update your Twilio number's webhook URLs:
+              </p>
+              <div className="space-y-2 text-sm">
+                <div className="p-2 bg-navy-900 rounded font-mono text-gray-300 break-all">
+                  <span className="text-gray-500">Voice URL:</span><br />
+                  {typeof window !== 'undefined' ? `${window.location.origin}/webhooks/twilio/voice` : '/webhooks/twilio/voice'}
+                </div>
+                <div className="p-2 bg-navy-900 rounded font-mono text-gray-300 break-all">
+                  <span className="text-gray-500">SMS URL:</span><br />
+                  {typeof window !== 'undefined' ? `${window.location.origin}/webhooks/twilio/sms` : '/webhooks/twilio/sms'}
+                </div>
+              </div>
+              <p className="text-amber-400/60 text-xs mt-3">
+                You can complete this step later from Settings → Phone Numbers.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => {
+                setExistingConfigured(false);
+                onChange({
+                  ...data,
+                  phoneNumber: '',
+                  provisionedNumber: null,
+                });
+              }}
+              className="text-accent hover:text-accent/80 text-sm transition-colors"
+            >
+              Use a different number
+            </button>
           </div>
         ) : (
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Your Twilio Phone Number
-            </label>
-            <input
-              type="tel"
-              value={data.phoneNumber}
-              onChange={(e) => onChange({ ...data, phoneNumber: e.target.value })}
-              placeholder="+1 (555) 123-4567"
-              className="w-full px-4 py-3 bg-navy-800 border border-white/10 rounded-lg text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent"
-            />
-            <p className="text-sm text-gray-500 mt-2">
-              We'll configure this number to work with ServiceFlow.
-            </p>
+          /* Input for existing number */
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">
+                Your Twilio Phone Number
+              </label>
+              <input
+                type="tel"
+                value={data.phoneNumber}
+                onChange={(e) => {
+                  onChange({ ...data, phoneNumber: e.target.value });
+                  setExistingConfigError(null);
+                }}
+                disabled={isConfiguringExisting}
+                placeholder="+1 555 123 4567"
+                className={`
+                  w-full px-4 py-3 bg-navy-800 border rounded-lg text-white placeholder:text-gray-500
+                  focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent
+                  ${existingConfigError ? 'border-red-500' : 'border-white/10'}
+                  ${isConfiguringExisting ? 'opacity-50' : ''}
+                `}
+              />
+              {existingConfigError ? (
+                <p className="text-sm text-red-400 mt-2">{existingConfigError}</p>
+              ) : (
+                <p className="text-sm text-gray-500 mt-2">
+                  Enter your existing Twilio number in E.164 format.
+                </p>
+              )}
+            </div>
+
+            {data.phoneNumber && isValidPhoneNumber(data.phoneNumber) && (
+              <button
+                type="button"
+                onClick={configureExistingNumber}
+                disabled={isConfiguringExisting}
+                className="w-full flex items-center justify-center gap-2 px-6 py-3 rounded-lg bg-green-600 text-white hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isConfiguringExisting ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Configuring...
+                  </>
+                ) : (
+                  <>
+                    <Check className="w-5 h-5" />
+                    Use This Number
+                  </>
+                )}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -384,15 +840,19 @@ function BusinessHoursStep({
   );
 }
 
-// Step 4: AI Preview
+// Step 4: AI Preview & Final Setup
 function AIPreviewStep({
   data,
   onChange,
   businessName,
+  loadSampleData,
+  onLoadSampleDataChange,
 }: {
   data: { greeting: string; voiceEnabled: boolean };
   onChange: (data: { greeting: string; voiceEnabled: boolean }) => void;
   businessName: string;
+  loadSampleData: boolean;
+  onLoadSampleDataChange: (load: boolean) => void;
 }) {
   const defaultGreeting = `Hi, thanks for calling ${businessName || 'us'}! We're helping another customer right now, but we'll get back to you shortly. Can I get your name and what you're calling about?`;
 
@@ -450,6 +910,49 @@ function AIPreviewStep({
             <p className="text-sm text-gray-400">Let AI answer calls when you're busy</p>
           </div>
         </div>
+
+        {/* Sample Data Toggle */}
+        <div className="pt-4 border-t border-white/10">
+          <div className="flex items-center gap-3 p-4 bg-navy-800 rounded-lg border border-white/10">
+            <button
+              type="button"
+              onClick={() => onLoadSampleDataChange(!loadSampleData)}
+              className={`
+                w-12 h-6 rounded-full transition-all relative flex-shrink-0
+                ${loadSampleData ? 'bg-green-500' : 'bg-white/20'}
+              `}
+            >
+              <div
+                className={`
+                  w-5 h-5 rounded-full bg-white absolute top-0.5 transition-all
+                  ${loadSampleData ? 'left-6' : 'left-0.5'}
+                `}
+              />
+            </button>
+            <div className="flex-1">
+              <p className="text-white font-medium">Load Sample Data</p>
+              <p className="text-sm text-gray-400">
+                See ServiceFlow in action with demo customers, jobs, and conversations
+              </p>
+            </div>
+          </div>
+          {loadSampleData && (
+            <div className="mt-3 p-3 bg-green-500/10 border border-green-500/20 rounded-lg">
+              <p className="text-green-400 text-sm">
+                We'll add sample data including:
+              </p>
+              <ul className="text-green-400/80 text-sm mt-2 space-y-1 ml-4">
+                <li>• 5 sample customers</li>
+                <li>• 8 jobs (leads, scheduled, completed)</li>
+                <li>• 3 conversations with AI examples</li>
+                <li>• 4 customer reviews</li>
+              </ul>
+              <p className="text-green-400/60 text-xs mt-2">
+                You can remove sample data later from Settings.
+              </p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -460,8 +963,19 @@ export default function OnboardingPage() {
   const router = useRouter();
   const { organization, refetch } = useAuthContext();
 
+  // Persistence hook
+  const {
+    isLoaded: persistenceLoaded,
+    savedProgress,
+    saveProgress,
+    clearProgress,
+    hasSavedProgress,
+    getTimeRemaining,
+  } = useOnboardingPersistence();
+
   const [currentStep, setCurrentStep] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [hasRestoredProgress, setHasRestoredProgress] = useState(false);
 
   // Form state
   const [businessProfile, setBusinessProfile] = useState({
@@ -469,10 +983,18 @@ export default function OnboardingPage() {
     serviceType: '',
   });
 
-  const [phoneSetup, setPhoneSetup] = useState({
+  const [phoneSetup, setPhoneSetup] = useState<{
+    areaCode: string;
+    phoneNumber: string;
+    useExisting: boolean;
+    selectedNumber: string;
+    provisionedNumber: ProvisionedNumber | null;
+  }>({
     areaCode: '',
     phoneNumber: '',
     useExisting: false,
+    selectedNumber: '',
+    provisionedNumber: null,
   });
 
   const [businessHours, setBusinessHours] = useState<{
@@ -492,6 +1014,9 @@ export default function OnboardingPage() {
     voiceEnabled: true,
   });
 
+  // Sample data toggle (default off)
+  const [loadSampleData, setLoadSampleData] = useState(false);
+
   // Detect user's timezone on mount
   const [detectedTimezone, setDetectedTimezone] = useState('America/New_York');
   useEffect(() => {
@@ -505,6 +1030,55 @@ export default function OnboardingPage() {
     }
   }, []);
 
+  // Restore saved progress on mount
+  useEffect(() => {
+    if (persistenceLoaded && savedProgress && !hasRestoredProgress) {
+      setCurrentStep(savedProgress.currentStep);
+      setBusinessProfile(savedProgress.businessProfile);
+      setPhoneSetup(savedProgress.phoneSetup);
+      setBusinessHours(savedProgress.businessHours);
+      setAiSettings(savedProgress.aiSettings);
+      setLoadSampleData(savedProgress.loadSampleData);
+      if (savedProgress.timezone) {
+        setDetectedTimezone(savedProgress.timezone);
+      }
+      setHasRestoredProgress(true);
+
+      const timeRemaining = getTimeRemaining();
+      if (timeRemaining) {
+        toast.info(`Welcome back! Your progress was saved. (expires in ${timeRemaining})`);
+      }
+    }
+  }, [persistenceLoaded, savedProgress, hasRestoredProgress, getTimeRemaining]);
+
+  // Auto-save progress when form state changes
+  useEffect(() => {
+    // Don't save until initial load is complete
+    if (!persistenceLoaded || !hasRestoredProgress && hasSavedProgress) return;
+
+    saveProgress({
+      currentStep,
+      businessProfile,
+      phoneSetup,
+      businessHours,
+      aiSettings,
+      loadSampleData,
+      timezone: detectedTimezone,
+    });
+  }, [
+    persistenceLoaded,
+    hasRestoredProgress,
+    hasSavedProgress,
+    currentStep,
+    businessProfile,
+    phoneSetup,
+    businessHours,
+    aiSettings,
+    loadSampleData,
+    detectedTimezone,
+    saveProgress,
+  ]);
+
   const steps = [
     { icon: Building2, label: 'Business' },
     { icon: Phone, label: 'Phone' },
@@ -517,7 +1091,11 @@ export default function OnboardingPage() {
       case 0:
         return businessProfile.businessName.trim() && businessProfile.serviceType;
       case 1:
-        return phoneSetup.useExisting ? phoneSetup.phoneNumber.trim() : phoneSetup.areaCode.length === 3;
+        // For new number: require a provisioned number
+        // For existing: require a phone number input
+        return phoneSetup.useExisting
+          ? phoneSetup.phoneNumber.trim().length > 0
+          : phoneSetup.provisionedNumber !== null;
       case 2:
         return true; // Hours are always valid
       case 3:
@@ -550,6 +1128,29 @@ export default function OnboardingPage() {
           throw new Error('Failed to complete onboarding');
         }
 
+        // Seed sample data if requested (non-blocking - continue even if it fails)
+        if (loadSampleData) {
+          try {
+            const seedResponse = await fetch('/api/onboarding/seed-sample-data', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+            });
+
+            if (seedResponse.ok) {
+              toast.success('Sample data loaded successfully!');
+            } else {
+              // Don't block onboarding completion, just warn
+              console.warn('Failed to seed sample data');
+            }
+          } catch (seedError) {
+            console.warn('Sample data seeding error:', seedError);
+            // Continue anyway - sample data is optional
+          }
+        }
+
+        // Clear saved progress on successful completion
+        clearProgress();
+
         // Refresh auth context to get updated org settings
         await refetch();
 
@@ -580,6 +1181,9 @@ export default function OnboardingPage() {
       if (!response.ok) {
         throw new Error('Failed to skip onboarding');
       }
+
+      // Clear saved progress
+      clearProgress();
 
       // Refresh auth context to get updated org settings
       await refetch();
@@ -631,6 +1235,8 @@ export default function OnboardingPage() {
               data={aiSettings}
               onChange={setAiSettings}
               businessName={businessProfile.businessName}
+              loadSampleData={loadSampleData}
+              onLoadSampleDataChange={setLoadSampleData}
             />
           )}
         </div>

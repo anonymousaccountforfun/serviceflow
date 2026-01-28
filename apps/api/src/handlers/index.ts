@@ -7,6 +7,8 @@
 import { registerMissedCallHandler } from './missed-call';
 import { registerReviewRequestHandler } from './review-request';
 import { registerSmsAIResponseHandler } from './sms-ai-response';
+import { registerAppointmentConfirmationHandler } from './appointment-confirmation';
+import { registerReminderHandler } from '../services/reminder-scheduler';
 import { logger } from '../lib/logger';
 
 /**
@@ -19,11 +21,8 @@ export function registerAllHandlers(): void {
   registerMissedCallHandler();
   registerReviewRequestHandler();
   registerSmsAIResponseHandler();
-
-  // Future handlers will be registered here:
-  // registerEstimateFollowupHandler();
-  // registerAppointmentReminderHandler();
-  // registerPaymentReminderHandler();
+  registerAppointmentConfirmationHandler();
+  registerReminderHandler();
 
   logger.info('All event handlers registered');
 }

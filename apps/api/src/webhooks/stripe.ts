@@ -12,6 +12,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '@serviceflow/database';
 import stripeService from '../services/stripe';
 import { logger } from '../lib/logger';
+import { sms } from '../services/sms';
+import { updateAttributionStage } from '../services/attribution';
 
 const router = Router();
 
@@ -183,8 +185,18 @@ async function handleSubscriptionDeleted(subscription: any) {
 }
 
 /**
+ * Detect payment method type from Stripe payment_intent
+ */
+function detectPaymentMethod(paymentIntent: any): 'card' | 'ach' | 'other' {
+  const paymentMethodType = paymentIntent.payment_method_types?.[0] || '';
+  if (paymentMethodType === 'card') return 'card';
+  if (paymentMethodType === 'us_bank_account' || paymentMethodType === 'ach_debit') return 'ach';
+  return 'other';
+}
+
+/**
  * Handle payment_intent.succeeded
- * Mark invoice as paid
+ * Mark invoice as paid, create Payment record, and send confirmation SMS
  */
 async function handlePaymentSucceeded(paymentIntent: any) {
   const { invoiceId } = paymentIntent.metadata || {};
@@ -194,26 +206,112 @@ async function handlePaymentSucceeded(paymentIntent: any) {
     return;
   }
 
-  // Update invoice status
-  await prisma.invoice.update({
+  // Check for duplicate payment (idempotency)
+  const existingPayment = await prisma.payment.findUnique({
+    where: { stripePaymentIntentId: paymentIntent.id },
+  });
+
+  if (existingPayment) {
+    logger.info('Duplicate payment webhook, already processed', {
+      paymentId: existingPayment.id,
+      paymentIntentId: paymentIntent.id,
+    });
+    return;
+  }
+
+  // Fetch invoice with customer and organization details for SMS
+  const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    data: {
-      status: 'paid',
-      paidAt: new Date(),
-      stripePaymentIntentId: paymentIntent.id,
+    include: {
+      customer: true,
+      organization: true,
     },
   });
 
+  if (!invoice) {
+    logger.warn('Payment succeeded for unknown invoice', { invoiceId });
+    return;
+  }
+
+  const paymentMethod = detectPaymentMethod(paymentIntent);
+
+  // Create Payment record and update invoice in a transaction
+  const [payment] = await prisma.$transaction([
+    prisma.payment.create({
+      data: {
+        invoiceId,
+        organizationId: invoice.organizationId,
+        customerId: invoice.customerId,
+        amount: paymentIntent.amount,
+        method: paymentMethod,
+        status: 'succeeded',
+        stripePaymentIntentId: paymentIntent.id,
+        processedAt: new Date(),
+      },
+    }),
+    prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: 'paid',
+        paidAt: new Date(),
+        paidAmount: paymentIntent.amount,
+        stripePaymentIntentId: paymentIntent.id,
+      },
+    }),
+  ]);
+
   logger.info('Invoice paid', {
     invoiceId,
+    paymentId: payment.id,
     paymentIntentId: paymentIntent.id,
     amount: paymentIntent.amount,
+    method: paymentMethod,
   });
+
+  // Update attribution to payment_collected stage
+  if (invoice.jobId) {
+    try {
+      await updateAttributionStage({
+        jobId: invoice.jobId,
+        stage: 'payment_collected',
+        actualValue: paymentIntent.amount,
+      });
+    } catch (attrError) {
+      logger.warn('Failed to update attribution stage', { invoiceId, error: attrError });
+    }
+  }
+
+  // Send payment confirmation SMS
+  if (invoice.customer?.phone) {
+    const customerName = [invoice.customer.firstName, invoice.customer.lastName]
+      .filter(Boolean)
+      .join(' ') || 'Customer';
+    const businessName = invoice.organization?.name || 'Our business';
+    const amount = (paymentIntent.amount / 100).toFixed(2);
+
+    try {
+      await sms.sendTemplated({
+        organizationId: invoice.organizationId,
+        customerId: invoice.customerId,
+        to: invoice.customer.phone,
+        templateType: 'payment_received',
+        variables: {
+          customerName,
+          amount,
+          businessName,
+        },
+      });
+      logger.info('Payment confirmation SMS sent', { invoiceId, to: invoice.customer.phone });
+    } catch (smsError) {
+      // Log error but don't fail - payment is already processed
+      logger.error('Failed to send payment confirmation SMS', { invoiceId, error: smsError });
+    }
+  }
 }
 
 /**
  * Handle payment_intent.payment_failed
- * Log failed payment attempt
+ * Create Payment record with failed status for debugging
  */
 async function handlePaymentFailed(paymentIntent: any) {
   const { invoiceId } = paymentIntent.metadata || {};
@@ -222,6 +320,60 @@ async function handlePaymentFailed(paymentIntent: any) {
     invoiceId,
     paymentIntentId: paymentIntent.id,
     error: paymentIntent.last_payment_error?.message,
+  });
+
+  if (!invoiceId) {
+    // Not an invoice payment
+    return;
+  }
+
+  // Check for duplicate (idempotency)
+  const existingPayment = await prisma.payment.findUnique({
+    where: { stripePaymentIntentId: paymentIntent.id },
+  });
+
+  if (existingPayment) {
+    logger.info('Duplicate failed payment webhook, already processed', {
+      paymentId: existingPayment.id,
+      paymentIntentId: paymentIntent.id,
+    });
+    return;
+  }
+
+  // Fetch invoice to get organizationId and customerId
+  const invoice = await prisma.invoice.findUnique({
+    where: { id: invoiceId },
+    select: { organizationId: true, customerId: true },
+  });
+
+  if (!invoice) {
+    logger.warn('Payment failed for unknown invoice', { invoiceId });
+    return;
+  }
+
+  const paymentMethod = detectPaymentMethod(paymentIntent);
+  const errorMessage = paymentIntent.last_payment_error?.message || 'Payment failed';
+
+  // Create failed Payment record for tracking
+  const payment = await prisma.payment.create({
+    data: {
+      invoiceId,
+      organizationId: invoice.organizationId,
+      customerId: invoice.customerId,
+      amount: paymentIntent.amount,
+      method: paymentMethod,
+      status: 'failed',
+      stripePaymentIntentId: paymentIntent.id,
+      note: errorMessage,
+      processedAt: new Date(),
+    },
+  });
+
+  logger.info('Failed payment recorded', {
+    paymentId: payment.id,
+    invoiceId,
+    paymentIntentId: paymentIntent.id,
+    error: errorMessage,
   });
 }
 
