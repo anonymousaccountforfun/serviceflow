@@ -239,7 +239,7 @@ describe('Appointments Routes', () => {
         .post('/api/appointments')
         .set(authHeader)
         .send(newAppointmentData)
-        .expect(400);
+        .expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error.code).toBe('E3001');

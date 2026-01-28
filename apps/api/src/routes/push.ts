@@ -7,7 +7,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { pushNotifications, type PushSubscriptionInput } from '../services/push-notifications.js';
-import { logger } from '../lib/logger.js';
+import { asyncHandler, sendSuccess, sendError, errors } from '../utils/api-response.js';
 
 const router = Router();
 
@@ -35,162 +35,83 @@ const preferencesSchema = z.object({
 // GET /api/push/vapid-public-key - Get VAPID public key for client
 router.get('/vapid-public-key', (req, res) => {
   const publicKey = pushNotifications.getVapidPublicKey();
-  
+
   if (!publicKey) {
-    return res.status(503).json({
-      success: false,
-      error: { code: 'E8001', message: 'Push notifications not configured' },
-    });
+    return errors.serviceUnavailable(res, 'Push notifications');
   }
 
-  res.json({ success: true, data: { publicKey } });
+  sendSuccess(res, { publicKey });
 });
 
 // POST /api/push/subscribe - Subscribe to push notifications
-router.post('/subscribe', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const subscription = subscribeSchema.parse(req.body);
-    const userAgent = req.headers['user-agent'];
+router.post('/subscribe', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const userAgent = req.headers['user-agent'];
 
-    await pushNotifications.subscribe(userId, subscription as PushSubscriptionInput, userAgent);
-
-    res.status(201).json({
-      success: true,
-      data: { subscribed: true },
-    });
-  } catch (error: any) {
-    if (error.name === 'ZodError') {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E2001', message: 'Invalid subscription data', details: error.errors },
-      });
-    }
-    logger.error('Error subscribing to push notifications', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to subscribe to push notifications' },
-    });
+  const parseResult = subscribeSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return errors.validation(res, 'Invalid subscription data', { details: parseResult.error.errors });
   }
-});
+
+  await pushNotifications.subscribe(userId, parseResult.data as PushSubscriptionInput, userAgent);
+
+  sendSuccess(res, { subscribed: true }, 201);
+}));
 
 // DELETE /api/push/subscribe - Unsubscribe from push notifications
-router.delete('/subscribe', async (req, res) => {
-  try {
-    const { endpoint } = req.body;
+router.delete('/subscribe', asyncHandler(async (req, res) => {
+  const { endpoint } = req.body;
 
-    if (!endpoint) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E2001', message: 'Endpoint is required' },
-      });
-    }
-
-    await pushNotifications.unsubscribe(endpoint);
-
-    res.json({
-      success: true,
-      data: { unsubscribed: true },
-    });
-  } catch (error) {
-    logger.error('Error unsubscribing from push notifications', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to unsubscribe from push notifications' },
-    });
+  if (!endpoint) {
+    return errors.validation(res, 'Endpoint is required');
   }
-});
+
+  await pushNotifications.unsubscribe(endpoint);
+
+  sendSuccess(res, { unsubscribed: true });
+}));
 
 // DELETE /api/push/subscribe/all - Unsubscribe all devices
-router.delete('/subscribe/all', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const count = await pushNotifications.unsubscribeAll(userId);
+router.delete('/subscribe/all', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const count = await pushNotifications.unsubscribeAll(userId);
 
-    res.json({
-      success: true,
-      data: { unsubscribed: count },
-    });
-  } catch (error) {
-    logger.error('Error unsubscribing all devices', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to unsubscribe all devices' },
-    });
-  }
-});
+  sendSuccess(res, { unsubscribed: count });
+}));
 
 // GET /api/push/preferences - Get notification preferences
-router.get('/preferences', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const preferences = await pushNotifications.getPreferences(userId);
+router.get('/preferences', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const preferences = await pushNotifications.getPreferences(userId);
 
-    res.json({
-      success: true,
-      data: preferences,
-    });
-  } catch (error) {
-    logger.error('Error getting notification preferences', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to get notification preferences' },
-    });
-  }
-});
+  sendSuccess(res, preferences);
+}));
 
 // PATCH /api/push/preferences - Update notification preferences
-router.patch('/preferences', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const preferences = preferencesSchema.parse(req.body);
+router.patch('/preferences', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
 
-    await pushNotifications.updatePreferences(userId, preferences);
-    const updated = await pushNotifications.getPreferences(userId);
-
-    res.json({
-      success: true,
-      data: updated,
-    });
-  } catch (error: any) {
-    if (error.name === 'ZodError') {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E2001', message: 'Invalid preferences data', details: error.errors },
-      });
-    }
-    logger.error('Error updating notification preferences', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to update notification preferences' },
-    });
+  const parseResult = preferencesSchema.safeParse(req.body);
+  if (!parseResult.success) {
+    return errors.validation(res, 'Invalid preferences data', { details: parseResult.error.errors });
   }
-});
+
+  await pushNotifications.updatePreferences(userId, parseResult.data);
+  const updated = await pushNotifications.getPreferences(userId);
+
+  sendSuccess(res, updated);
+}));
 
 // POST /api/push/test - Send test notification
-router.post('/test', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const success = await pushNotifications.sendTestNotification(userId);
+router.post('/test', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const success = await pushNotifications.sendTestNotification(userId);
 
-    if (!success) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E8002', message: 'No active subscriptions found or push not configured' },
-      });
-    }
-
-    res.json({
-      success: true,
-      data: { sent: true },
-    });
-  } catch (error) {
-    logger.error('Error sending test notification', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to send test notification' },
-    });
+  if (!success) {
+    return errors.validation(res, 'No active subscriptions found or push not configured');
   }
-});
+
+  sendSuccess(res, { sent: true });
+}));
 
 export default router;

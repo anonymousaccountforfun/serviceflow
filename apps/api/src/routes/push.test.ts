@@ -65,7 +65,7 @@ describe('Push Routes', () => {
         .expect(503);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E8001');
+      expect(response.body.error.code).toBe('E5005');
     });
   });
 
@@ -256,7 +256,7 @@ describe('Push Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E8002');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 });

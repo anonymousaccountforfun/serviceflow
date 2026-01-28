@@ -8,10 +8,11 @@
  * - List organization's phone numbers
  */
 
-import { Router, Request, Response } from 'express';
+import { Router } from 'express';
 import twilio from 'twilio';
 import { prisma } from '@serviceflow/database';
 import { logger } from '../lib/logger';
+import { asyncHandler, sendSuccess, sendError, errors, ErrorCodes } from '../utils/api-response';
 
 const router = Router();
 
@@ -34,51 +35,34 @@ function getTwilioClient(): twilio.Twilio | null {
  * GET /api/phone-numbers
  * List organization's phone numbers
  */
-router.get('/', async (req: Request, res: Response) => {
-  try {
-    const orgId = req.auth!.organizationId;
+router.get('/', asyncHandler(async (req, res) => {
+  const orgId = req.auth!.organizationId;
 
-    const phoneNumbers = await prisma.phoneNumber.findMany({
-      where: { organizationId: orgId },
-      orderBy: { createdAt: 'desc' },
-    });
+  const phoneNumbers = await prisma.phoneNumber.findMany({
+    where: { organizationId: orgId },
+    orderBy: { createdAt: 'desc' },
+  });
 
-    res.json({
-      success: true,
-      data: phoneNumbers,
-    });
-  } catch (error) {
-    logger.error('Get phone numbers error', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E5001', message: 'Failed to get phone numbers' },
-    });
-  }
-});
+  sendSuccess(res, phoneNumbers);
+}));
 
 /**
  * GET /api/phone-numbers/search
  * Search for available phone numbers by area code
  */
-router.get('/search', async (req: Request, res: Response) => {
+router.get('/search', asyncHandler(async (req, res) => {
+  const { areaCode } = req.query;
+
+  if (!areaCode || typeof areaCode !== 'string' || areaCode.length !== 3) {
+    return errors.validation(res, 'Valid 3-digit area code is required');
+  }
+
+  const client = getTwilioClient();
+  if (!client) {
+    return errors.serviceUnavailable(res, 'Twilio');
+  }
+
   try {
-    const { areaCode } = req.query;
-
-    if (!areaCode || typeof areaCode !== 'string' || areaCode.length !== 3) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4001', message: 'Valid 3-digit area code is required' },
-      });
-    }
-
-    const client = getTwilioClient();
-    if (!client) {
-      return res.status(503).json({
-        success: false,
-        error: { code: 'E5002', message: 'Twilio not configured' },
-      });
-    }
-
     // Search for available local numbers in the area code
     const availableNumbers = await client.availablePhoneNumbers('US')
       .local.list({
@@ -100,58 +84,39 @@ router.get('/search', async (req: Request, res: Response) => {
       },
     }));
 
-    res.json({
-      success: true,
-      data: formattedNumbers,
-    });
+    sendSuccess(res, formattedNumbers);
   } catch (error: any) {
-    logger.error('Search phone numbers error', error);
-
     // Handle Twilio-specific errors
     if (error.code === 20404) {
-      return res.json({
-        success: true,
-        data: [],
-        message: 'No numbers available in this area code',
-      });
+      return sendSuccess(res, []);
     }
-
-    res.status(500).json({
-      success: false,
-      error: { code: 'E5003', message: error.message || 'Failed to search phone numbers' },
-    });
+    throw error;
   }
-});
+}));
 
 /**
  * POST /api/phone-numbers/provision
  * Purchase and provision a new phone number
  */
-router.post('/provision', async (req: Request, res: Response) => {
+router.post('/provision', asyncHandler(async (req, res) => {
+  const orgId = req.auth!.organizationId;
+  const { phoneNumber, label } = req.body;
+
+  if (!phoneNumber || typeof phoneNumber !== 'string') {
+    return errors.validation(res, 'Phone number is required');
+  }
+
+  const client = getTwilioClient();
+  if (!client) {
+    return errors.serviceUnavailable(res, 'Twilio');
+  }
+
+  // Check if organization already has a main number
+  const existingMain = await prisma.phoneNumber.findFirst({
+    where: { organizationId: orgId, type: 'main' },
+  });
+
   try {
-    const orgId = req.auth!.organizationId;
-    const { phoneNumber, label } = req.body;
-
-    if (!phoneNumber || typeof phoneNumber !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4002', message: 'Phone number is required' },
-      });
-    }
-
-    const client = getTwilioClient();
-    if (!client) {
-      return res.status(503).json({
-        success: false,
-        error: { code: 'E5002', message: 'Twilio not configured' },
-      });
-    }
-
-    // Check if organization already has a main number
-    const existingMain = await prisma.phoneNumber.findFirst({
-      where: { organizationId: orgId, type: 'main' },
-    });
-
     // Purchase the phone number
     const purchasedNumber = await client.incomingPhoneNumbers.create({
       phoneNumber,
@@ -199,231 +164,173 @@ router.post('/provision', async (req: Request, res: Response) => {
 
     logger.info('Provisioned phone number', { phoneNumber: purchasedNumber.phoneNumber, organizationId: orgId });
 
-    res.json({
-      success: true,
-      data: {
-        id: newPhoneNumber.id,
-        number: newPhoneNumber.number,
-        twilioSid: newPhoneNumber.twilioSid,
-        type: newPhoneNumber.type,
-        label: newPhoneNumber.label,
-        isActive: newPhoneNumber.isActive,
-      },
+    sendSuccess(res, {
+      id: newPhoneNumber.id,
+      number: newPhoneNumber.number,
+      twilioSid: newPhoneNumber.twilioSid,
+      type: newPhoneNumber.type,
+      label: newPhoneNumber.label,
+      isActive: newPhoneNumber.isActive,
     });
-  } catch (error) {
-    logger.error('Provision phone number error', error);
-
+  } catch (error: any) {
     // Handle Twilio-specific errors
     if (error.code === 21422) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4003', message: 'Phone number is not available for purchase' },
-      });
+      return errors.validation(res, 'Phone number is not available for purchase');
     }
-
     if (error.code === 21452) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4004', message: 'Invalid phone number format' },
-      });
+      return errors.validation(res, 'Invalid phone number format');
     }
-
-    res.status(500).json({
-      success: false,
-      error: { code: 'E5004', message: error.message || 'Failed to provision phone number' },
-    });
+    throw error;
   }
-});
+}));
 
 /**
  * POST /api/phone-numbers/use-existing
  * Configure an existing phone number (user provides their own)
  */
-router.post('/use-existing', async (req: Request, res: Response) => {
-  try {
-    const orgId = req.auth!.organizationId;
-    const { phoneNumber, label } = req.body;
+router.post('/use-existing', asyncHandler(async (req, res) => {
+  const orgId = req.auth!.organizationId;
+  const { phoneNumber, label } = req.body;
 
-    if (!phoneNumber || typeof phoneNumber !== 'string') {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4002', message: 'Phone number is required' },
-      });
-    }
+  if (!phoneNumber || typeof phoneNumber !== 'string') {
+    return errors.validation(res, 'Phone number is required');
+  }
 
-    // Normalize the phone number
-    let normalizedNumber = phoneNumber.replace(/\D/g, '');
-    if (normalizedNumber.length === 10) {
-      normalizedNumber = `+1${normalizedNumber}`;
-    } else if (normalizedNumber.length === 11 && normalizedNumber.startsWith('1')) {
-      normalizedNumber = `+${normalizedNumber}`;
-    } else if (!normalizedNumber.startsWith('+')) {
-      normalizedNumber = `+${normalizedNumber}`;
-    }
+  // Normalize the phone number
+  let normalizedNumber = phoneNumber.replace(/\D/g, '');
+  if (normalizedNumber.length === 10) {
+    normalizedNumber = `+1${normalizedNumber}`;
+  } else if (normalizedNumber.length === 11 && normalizedNumber.startsWith('1')) {
+    normalizedNumber = `+${normalizedNumber}`;
+  } else if (!normalizedNumber.startsWith('+')) {
+    normalizedNumber = `+${normalizedNumber}`;
+  }
 
-    // Check if number already exists
-    const existing = await prisma.phoneNumber.findUnique({
-      where: { number: normalizedNumber },
-    });
+  // Check if number already exists
+  const existing = await prisma.phoneNumber.findUnique({
+    where: { number: normalizedNumber },
+  });
 
-    if (existing) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4005', message: 'Phone number is already registered' },
-      });
-    }
+  if (existing) {
+    return sendError(res, ErrorCodes.DUPLICATE_ENTRY, 'Phone number is already registered', 409);
+  }
 
-    // Check if organization already has a main number
-    const existingMain = await prisma.phoneNumber.findFirst({
-      where: { organizationId: orgId, type: 'main' },
-    });
+  // Check if organization already has a main number
+  const existingMain = await prisma.phoneNumber.findFirst({
+    where: { organizationId: orgId, type: 'main' },
+  });
 
-    // Create phone number record (without Twilio SID since it's external)
-    const newPhoneNumber = await prisma.phoneNumber.create({
-      data: {
-        organizationId: orgId,
-        number: normalizedNumber,
-        twilioSid: `EXTERNAL_${Date.now()}`, // Placeholder for external numbers
-        type: existingMain ? 'tracking' : 'main',
-        label: label || 'External Business Line',
-        isActive: true,
-      },
-    });
+  // Create phone number record (without Twilio SID since it's external)
+  const newPhoneNumber = await prisma.phoneNumber.create({
+    data: {
+      organizationId: orgId,
+      number: normalizedNumber,
+      twilioSid: `EXTERNAL_${Date.now()}`, // Placeholder for external numbers
+      type: existingMain ? 'tracking' : 'main',
+      label: label || 'External Business Line',
+      isActive: true,
+    },
+  });
 
-    // Update organization settings
-    const org = await prisma.organization.findUnique({
-      where: { id: orgId },
-      select: { settings: true },
-    });
+  // Update organization settings
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+    select: { settings: true },
+  });
 
-    const currentSettings = (org?.settings as any) || {};
-    await prisma.organization.update({
-      where: { id: orgId },
-      data: {
-        settings: {
-          ...currentSettings,
-          phoneSetup: {
-            ...currentSettings.phoneSetup,
-            useExisting: true,
-            externalPhoneNumber: normalizedNumber,
-          },
+  const currentSettings = (org?.settings as any) || {};
+  await prisma.organization.update({
+    where: { id: orgId },
+    data: {
+      settings: {
+        ...currentSettings,
+        phoneSetup: {
+          ...currentSettings.phoneSetup,
+          useExisting: true,
+          externalPhoneNumber: normalizedNumber,
         },
       },
-    });
+    },
+  });
 
-    logger.info('Registered external phone number', { phoneNumber: normalizedNumber, organizationId: orgId });
+  logger.info('Registered external phone number', { phoneNumber: normalizedNumber, organizationId: orgId });
 
-    res.json({
-      success: true,
-      data: {
-        id: newPhoneNumber.id,
-        number: newPhoneNumber.number,
-        type: newPhoneNumber.type,
-        label: newPhoneNumber.label,
-        isActive: newPhoneNumber.isActive,
-        isExternal: true,
-      },
-    });
-  } catch (error) {
-    logger.error('Register existing phone number error', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E5005', message: error.message || 'Failed to register phone number' },
-    });
-  }
-});
+  sendSuccess(res, {
+    id: newPhoneNumber.id,
+    number: newPhoneNumber.number,
+    type: newPhoneNumber.type,
+    label: newPhoneNumber.label,
+    isActive: newPhoneNumber.isActive,
+    isExternal: true,
+  });
+}));
 
 /**
  * DELETE /api/phone-numbers/:id
  * Release/delete a phone number
  */
-router.delete('/:id', async (req: Request, res: Response) => {
-  try {
-    const orgId = req.auth!.organizationId;
-    const { id } = req.params;
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const orgId = req.auth!.organizationId;
+  const { id } = req.params;
 
-    const phoneNumber = await prisma.phoneNumber.findFirst({
-      where: { id, organizationId: orgId },
-    });
+  const phoneNumber = await prisma.phoneNumber.findFirst({
+    where: { id, organizationId: orgId },
+  });
 
-    if (!phoneNumber) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'E4006', message: 'Phone number not found' },
-      });
-    }
+  if (!phoneNumber) {
+    return errors.notFound(res, 'Phone number');
+  }
 
-    // If it's a Twilio number (not external), release it
-    if (!phoneNumber.twilioSid.startsWith('EXTERNAL_')) {
-      const client = getTwilioClient();
-      if (client) {
-        try {
-          await client.incomingPhoneNumbers(phoneNumber.twilioSid).remove();
-          logger.info('Released Twilio number', { phoneNumber: phoneNumber.number });
-        } catch (twilioError) {
-          logger.error('Failed to release Twilio number', twilioError);
-          // Continue with deletion even if Twilio release fails
-        }
+  // If it's a Twilio number (not external), release it
+  if (!phoneNumber.twilioSid.startsWith('EXTERNAL_')) {
+    const client = getTwilioClient();
+    if (client) {
+      try {
+        await client.incomingPhoneNumbers(phoneNumber.twilioSid).remove();
+        logger.info('Released Twilio number', { phoneNumber: phoneNumber.number });
+      } catch (twilioError) {
+        logger.error('Failed to release Twilio number', twilioError);
+        // Continue with deletion even if Twilio release fails
       }
     }
-
-    // Delete from database
-    await prisma.phoneNumber.delete({
-      where: { id },
-    });
-
-    res.json({
-      success: true,
-      message: 'Phone number released successfully',
-    });
-  } catch (error: any) {
-    logger.error('Delete phone number error', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E5006', message: error.message || 'Failed to delete phone number' },
-    });
   }
-});
+
+  // Delete from database
+  await prisma.phoneNumber.delete({
+    where: { id },
+  });
+
+  sendSuccess(res, { deleted: true, message: 'Phone number released successfully' });
+}));
 
 /**
  * GET /api/phone-numbers/status
  * Check Twilio configuration status
  */
-router.get('/status', async (req: Request, res: Response) => {
-  try {
-    const orgId = req.auth!.organizationId;
+router.get('/status', asyncHandler(async (req, res) => {
+  const orgId = req.auth!.organizationId;
 
-    const client = getTwilioClient();
-    const isConfigured = !!client;
+  const client = getTwilioClient();
+  const isConfigured = !!client;
 
-    const phoneNumbers = await prisma.phoneNumber.findMany({
-      where: { organizationId: orgId, isActive: true },
-    });
+  const phoneNumbers = await prisma.phoneNumber.findMany({
+    where: { organizationId: orgId, isActive: true },
+  });
 
-    const hasMainNumber = phoneNumbers.some(p => p.type === 'main');
+  const hasMainNumber = phoneNumbers.some(p => p.type === 'main');
 
-    res.json({
-      success: true,
-      data: {
-        twilioConfigured: isConfigured,
-        hasPhoneNumber: phoneNumbers.length > 0,
-        hasMainNumber,
-        phoneNumbers: phoneNumbers.map(p => ({
-          id: p.id,
-          number: p.number,
-          type: p.type,
-          label: p.label,
-          isExternal: p.twilioSid.startsWith('EXTERNAL_'),
-        })),
-      },
-    });
-  } catch (error: any) {
-    logger.error('Get phone status error', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E5007', message: error.message || 'Failed to get phone status' },
-    });
-  }
-});
+  sendSuccess(res, {
+    twilioConfigured: isConfigured,
+    hasPhoneNumber: phoneNumbers.length > 0,
+    hasMainNumber,
+    phoneNumbers: phoneNumbers.map(p => ({
+      id: p.id,
+      number: p.number,
+      type: p.type,
+      label: p.label,
+      isExternal: p.twilioSid.startsWith('EXTERNAL_'),
+    })),
+  });
+}));
 
 export default router;

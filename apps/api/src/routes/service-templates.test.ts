@@ -215,10 +215,10 @@ describe('Service Templates Routes', () => {
         .post('/api/service-templates')
         .set(authHeader)
         .send({ ...newTemplateData, name: testTemplate.name })
-        .expect(400);
+        .expect(409);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4001');
+      expect(response.body.error.code).toBe('E2004');
       expect(response.body.error.message).toContain('already exists');
     });
 
@@ -278,10 +278,10 @@ describe('Service Templates Routes', () => {
         .patch(`/api/service-templates/${testTemplate.id}`)
         .set(authHeader)
         .send({ name: 'Other Template' })
-        .expect(400);
+        .expect(409);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4001');
+      expect(response.body.error.code).toBe('E2004');
     });
 
     it('should return 404 for non-existent template', async () => {

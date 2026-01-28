@@ -2,7 +2,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { Bot, Phone, Calendar, DollarSign, Clock, AlertTriangle, Loader2 } from 'lucide-react';
-import { api } from '../../../lib/api';
+import { api, type AIROIResponse } from '../../../lib/api';
 
 function MetricCard({ label, value, subValue, icon: Icon, color = 'blue' }: {
   label: string;
@@ -71,7 +71,7 @@ export default function AIPerformancePage() {
     );
   }
 
-  const stats = data?.data || {};
+  const stats: Partial<AIROIResponse> = data?.data || {};
 
   return (
     <div className="space-y-6">

@@ -1,26 +1,127 @@
-// ServiceFlow TypeScript Type Definitions
-// These types mirror the Prisma schema for client-side usage
+/**
+ * ServiceFlow TypeScript Type Definitions for Client-Side
+ *
+ * This file re-exports types from @serviceflow/shared with Serialized<T>
+ * applied to convert Date fields to strings (as they appear in JSON responses).
+ *
+ * Types also include optional relation fields that the API may include.
+ */
+
+import type { Serialized } from '@serviceflow/shared';
+import type {
+  // Settings types
+  OrganizationSettings as OrgSettingsBase,
+  BusinessHours,
+  DayHours,
+  NotificationSettings,
+  AISettings,
+  BrandingSettings,
+  ServiceArea,
+  Address,
+  // Enums
+  SubscriptionTier,
+  SubscriptionStatus,
+  UserRole,
+  CustomerSource,
+  ConversationChannel,
+  ConversationStatus,
+  MessageDirection,
+  SenderType,
+  ContentType,
+  MessageStatus,
+  JobType,
+  JobStatus,
+  JobPriority,
+  AppointmentStatus,
+  ReviewPlatform,
+  PhoneNumberType,
+  EstimateStatus,
+  InvoiceStatus,
+  // API types
+  ApiResponse,
+  ApiError,
+  ApiMeta,
+  CreateCustomerRequest,
+  CreateJobRequest,
+  UpdateJobRequest,
+  CreateAppointmentRequest,
+} from '@serviceflow/shared';
+
+// Re-export enums and simple types directly
+export type {
+  SubscriptionTier,
+  SubscriptionStatus,
+  UserRole,
+  CustomerSource,
+  ConversationChannel,
+  ConversationStatus,
+  MessageDirection,
+  SenderType,
+  ContentType,
+  MessageStatus,
+  JobType,
+  JobStatus,
+  JobPriority,
+  AppointmentStatus,
+  ReviewPlatform,
+  PhoneNumberType,
+  EstimateStatus,
+  InvoiceStatus,
+  // Settings (no Date fields)
+  BusinessHours,
+  DayHours,
+  NotificationSettings,
+  AISettings,
+  BrandingSettings,
+  ServiceArea,
+  // API types
+  ApiResponse,
+  ApiError,
+  ApiMeta,
+  CreateCustomerRequest,
+  CreateJobRequest,
+  UpdateJobRequest,
+  CreateAppointmentRequest,
+};
 
 // ============================================
-// ENUMS
+// ORGANIZATION SETTINGS
+// Extended with web-specific optional fields for backwards compat
 // ============================================
 
-export type SubscriptionTier = 'starter' | 'growth' | 'scale';
-export type SubscriptionStatus = 'active' | 'past_due' | 'canceled' | 'trialing';
-export type UserRole = 'owner' | 'admin' | 'technician' | 'viewer';
-export type CustomerSource = 'phone_inbound' | 'phone_ai' | 'sms_inbound' | 'web_form' | 'referral' | 'google' | 'yelp' | 'manual' | 'import';
-export type ConversationChannel = 'sms' | 'phone' | 'email' | 'web_form';
-export type ConversationStatus = 'open' | 'pending' | 'resolved' | 'archived';
-export type MessageDirection = 'inbound' | 'outbound';
-export type SenderType = 'customer' | 'user' | 'ai' | 'system';
-export type JobType = 'repair' | 'installation' | 'maintenance' | 'inspection' | 'emergency' | 'estimate' | 'other';
-export type JobStatus = 'lead' | 'quoted' | 'scheduled' | 'in_progress' | 'completed' | 'canceled' | 'on_hold';
-export type JobPriority = 'low' | 'normal' | 'high' | 'emergency';
-export type AppointmentStatus = 'scheduled' | 'confirmed' | 'in_progress' | 'completed' | 'canceled' | 'no_show' | 'rescheduled';
-export type ReviewPlatform = 'google' | 'yelp' | 'facebook' | 'internal';
+export interface OrganizationSettings extends OrgSettingsBase {
+  // Legacy fields used during onboarding
+  onboardingCompleted?: boolean;
+  firstJobCompleted?: boolean;
+  smsEnabled?: boolean;
+  aiAssistantEnabled?: boolean;
+  twilioPhoneNumber?: string;
+  googleConnected?: boolean;
+  yelpConnected?: boolean;
+  stripeConnected?: boolean;
+  // Allow additional unknown properties
+  [key: string]: unknown;
+}
 
 // ============================================
-// CORE ENTITIES
+// ADDRESS TYPE
+// Keep customer address structure compatible with legacy code
+// ============================================
+
+export interface CustomerAddress {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+}
+
+// Re-export shared Address type for use with newer fields
+export type { Address };
+
+// ============================================
+// CORE ENTITIES WITH RELATIONS
+// These include optional relation fields that APIs may return
 // ============================================
 
 export interface Organization {
@@ -39,45 +140,6 @@ export interface Organization {
   updatedAt: string;
 }
 
-export interface OrganizationSettings {
-  onboardingCompleted?: boolean;
-  firstJobCompleted?: boolean;
-  businessHours?: BusinessHours;
-  smsEnabled?: boolean;
-  aiAssistantEnabled?: boolean;
-  twilioPhoneNumber?: string;
-  googleConnected?: boolean;
-  yelpConnected?: boolean;
-  stripeConnected?: boolean;
-  notificationSettings?: NotificationSettings;
-  [key: string]: unknown;
-}
-
-export interface BusinessHours {
-  monday?: DayHours;
-  tuesday?: DayHours;
-  wednesday?: DayHours;
-  thursday?: DayHours;
-  friday?: DayHours;
-  saturday?: DayHours;
-  sunday?: DayHours;
-}
-
-export interface DayHours {
-  open: string;
-  close: string;
-  closed?: boolean;
-}
-
-export interface NotificationSettings {
-  emailNotifications?: boolean;
-  smsNotifications?: boolean;
-  pushNotifications?: boolean;
-  newLeadAlerts?: boolean;
-  appointmentReminders?: boolean;
-  reviewAlerts?: boolean;
-}
-
 export interface User {
   id: string;
   organizationId: string;
@@ -92,18 +154,6 @@ export interface User {
   createdAt: string;
   updatedAt: string;
   organization?: Organization;
-}
-
-// ============================================
-// CUSTOMERS
-// ============================================
-
-export interface CustomerAddress {
-  street?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-  country?: string;
 }
 
 export interface Customer {
@@ -126,10 +176,6 @@ export interface Customer {
   jobs?: Job[];
   conversations?: Conversation[];
 }
-
-// ============================================
-// JOBS
-// ============================================
 
 export interface Job {
   id: string;
@@ -156,10 +202,6 @@ export interface Job {
   appointments?: Appointment[];
 }
 
-// ============================================
-// APPOINTMENTS
-// ============================================
-
 export interface Appointment {
   id: string;
   jobId: string;
@@ -179,10 +221,6 @@ export interface Appointment {
   customer?: Customer;
   assignedTo?: User;
 }
-
-// ============================================
-// CONVERSATIONS & MESSAGES
-// ============================================
 
 export interface Conversation {
   id: string;
@@ -213,10 +251,6 @@ export interface Message {
   sender?: User;
 }
 
-// ============================================
-// REVIEWS
-// ============================================
-
 export interface Review {
   id: string;
   organizationId: string;
@@ -237,14 +271,22 @@ export interface Review {
   job?: Job;
 }
 
+export interface PhoneNumber {
+  id: string;
+  organizationId: string;
+  number: string;
+  twilioSid: string;
+  type: PhoneNumberType;
+  label: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 // ============================================
-// API RESPONSE TYPES
+// PAGINATION
 // ============================================
 
-// Import shared types (avoid duplication)
-export type { ApiResponse, ApiError, ApiMeta } from '@serviceflow/shared';
-
-// Alias for backwards compatibility
 export type PaginationMeta = {
   page: number;
   perPage: number;
@@ -304,20 +346,6 @@ export interface CreateAppointmentInput {
 // ============================================
 // PHONE NUMBERS
 // ============================================
-
-export type PhoneNumberType = 'main' | 'tracking';
-
-export interface PhoneNumber {
-  id: string;
-  organizationId: string;
-  number: string;
-  twilioSid: string;
-  type: PhoneNumberType;
-  label: string;
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
-}
 
 export interface PhoneStatus {
   twilioConfigured: boolean;

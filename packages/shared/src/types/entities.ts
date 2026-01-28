@@ -528,3 +528,56 @@ export interface SequenceEnrollment {
 }
 
 export type EnrollmentStatus = 'active' | 'completed' | 'canceled' | 'paused';
+
+// ============================================
+// RELATION TYPES
+// These interfaces extend base entities with optional relations
+// that may be included when the API returns related data.
+// ============================================
+
+export interface CustomerWithRelations extends Customer {
+  jobs?: Job[];
+  conversations?: Conversation[];
+  appointments?: Appointment[];
+  _count?: {
+    jobs?: number;
+    conversations?: number;
+    appointments?: number;
+  };
+}
+
+export interface JobWithRelations extends Job {
+  customer?: Customer;
+  assignedTo?: User;
+  appointments?: Appointment[];
+  estimates?: Estimate[];
+  invoices?: Invoice[];
+}
+
+export interface ConversationWithRelations extends Conversation {
+  customer?: Customer;
+  assignedTo?: User;
+  messages?: Message[];
+}
+
+export interface AppointmentWithRelations extends Appointment {
+  job?: Job;
+  customer?: Customer;
+  assignedTo?: User;
+}
+
+export interface ReviewWithRelations extends Review {
+  customer?: Customer;
+  job?: Job;
+}
+
+export interface EstimateWithRelations extends Estimate {
+  job?: Job;
+  customer?: Customer;
+}
+
+export interface InvoiceWithRelations extends Invoice {
+  job?: Job;
+  customer?: Customer;
+  estimate?: Estimate;
+}

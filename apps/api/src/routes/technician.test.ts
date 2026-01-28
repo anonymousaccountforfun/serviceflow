@@ -154,7 +154,7 @@ describe('Technician Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4001');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 
@@ -277,7 +277,7 @@ describe('Technician Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4003');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 
@@ -297,7 +297,7 @@ describe('Technician Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should return weekly timesheet', async () => {
@@ -337,7 +337,7 @@ describe('Technician Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4001');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 

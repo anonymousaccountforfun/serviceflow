@@ -115,7 +115,7 @@ describe('Team Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should reject invalid email', async () => {
@@ -126,7 +126,7 @@ describe('Team Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4002');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should reject invalid role', async () => {
@@ -239,8 +239,8 @@ describe('Team Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4003');
-      expect(response.body.error.activeJobCount).toBe(3);
+      expect(response.body.error.code).toBe('E2001');
+      expect(response.body.error.details.activeJobCount).toBe(3);
     });
 
     it('should prevent removing the owner', async () => {

@@ -5,7 +5,7 @@
  * All API endpoints should use these helpers.
  */
 
-import { Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { logger } from '../lib/logger';
 
 /**
@@ -159,14 +159,19 @@ export const errors = {
 
 /**
  * Wrap an async route handler with error handling
+ *
+ * Accepts handlers that return Promise<void> or Promise<void | Response>
+ * to support early return patterns like `return errors.notFound(res, 'X')`
+ * or `return res.status(410).json(...)`.
  */
 export function asyncHandler(
-  fn: (req: any, res: Response, next: any) => Promise<any>
+  fn: (req: Request, res: Response, next: NextFunction) => Promise<void | Response>
 ) {
-  return (req: any, res: Response, next: any) => {
-    Promise.resolve(fn(req, res, next)).catch((error) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    Promise.resolve(fn(req, res, next)).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : 'Unknown error';
       logger.error('Unhandled route error', error);
-      errors.internal(res, error.message);
+      errors.internal(res, message);
     });
   };
 }

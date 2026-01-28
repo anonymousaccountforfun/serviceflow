@@ -159,7 +159,7 @@ describe('Invoices Routes', () => {
       expect(mockPrisma.invoice.create).toHaveBeenCalled();
     });
 
-    it('should return 400 for non-existent job', async () => {
+    it('should return 404 for non-existent job', async () => {
       mockPrisma.job.findFirst.mockResolvedValue(null);
 
       const response = await request(app)
@@ -171,7 +171,7 @@ describe('Invoices Routes', () => {
             { description: 'Service', quantity: 1, unitPrice: 10000, total: 10000 },
           ],
         })
-        .expect(400);
+        .expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error.code).toBe('E3001');
@@ -210,7 +210,7 @@ describe('Invoices Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 
@@ -380,10 +380,10 @@ describe('Invoices Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data.status).toBe('partial');
-      expect(response.body.payment.id).toBe('pay_test123');
-      expect(response.body.payment.amount).toBe(5000);
-      expect(response.body.payment.method).toBe('cash');
-      expect(response.body.payment.status).toBe('succeeded');
+      expect(response.body.data.payment.id).toBe('pay_test123');
+      expect(response.body.data.payment.amount).toBe(5000);
+      expect(response.body.data.payment.method).toBe('cash');
+      expect(response.body.data.payment.status).toBe('succeeded');
 
       // Verify transaction was called with payment creation
       expect(mockPrisma.$transaction).toHaveBeenCalled();
@@ -422,7 +422,7 @@ describe('Invoices Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data.status).toBe('paid');
-      expect(response.body.payment.method).toBe('check');
+      expect(response.body.data.payment.method).toBe('check');
     });
 
     it('should reject recording payment on paid invoice', async () => {
@@ -438,7 +438,7 @@ describe('Invoices Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should still succeed if SMS fails during payment recording', async () => {
@@ -494,7 +494,7 @@ describe('Invoices Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 

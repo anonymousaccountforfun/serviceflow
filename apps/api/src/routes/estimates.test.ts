@@ -218,7 +218,7 @@ describe('Estimates Routes', () => {
         .post('/api/estimates')
         .set(authHeader)
         .send(newEstimateData)
-        .expect(400);
+        .expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error.message).toBe('Customer not found');
@@ -232,7 +232,7 @@ describe('Estimates Routes', () => {
         .post('/api/estimates')
         .set(authHeader)
         .send(newEstimateData)
-        .expect(400);
+        .expect(404);
 
       expect(response.body.success).toBe(false);
       expect(response.body.error.message).toBe('Job not found');
@@ -267,7 +267,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should return 404 for non-existent estimate', async () => {
@@ -308,7 +308,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should reject voiding approved estimate', async () => {
@@ -341,7 +341,7 @@ describe('Estimates Routes', () => {
 
       expect(response.body.success).toBe(true);
       expect(response.body.data.status).toBe('sent');
-      expect(response.body.publicUrl).toBeDefined();
+      expect(response.body.data.publicUrl).toBeDefined();
     });
 
     it('should reject sending non-draft estimate', async () => {
@@ -354,7 +354,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 
@@ -395,7 +395,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should reject converting estimate without job', async () => {
@@ -408,7 +408,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5002');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 
@@ -561,7 +561,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
       expect(response.body.error.message).toContain('approved');
     });
 
@@ -579,7 +579,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5002');
+      expect(response.body.error.code).toBe('E2001');
       expect(response.body.error.message).toContain('already been requested');
     });
 
@@ -593,7 +593,7 @@ describe('Estimates Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5003');
+      expect(response.body.error.code).toBe('E2001');
       expect(response.body.error.message).toContain('cannot exceed');
     });
 

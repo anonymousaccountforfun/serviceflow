@@ -12,6 +12,7 @@ import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
 import { logger } from '../lib/logger';
 import { z } from 'zod';
+import { asyncHandler, sendSuccess, errors } from '../utils/api-response';
 
 const router = Router();
 
@@ -269,87 +270,73 @@ function calculateEstimatedHours(jobs: any[]): number {
  * Query params:
  *   - date: YYYY-MM-DD format (defaults to today)
  */
-router.get('/day', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const orgId = req.auth!.organizationId;
+router.get('/day', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const orgId = req.auth!.organizationId;
 
-    // Parse and validate date
-    let targetDate: string;
-    if (req.query.date) {
-      const parsed = dateQuerySchema.safeParse({ date: req.query.date });
-      if (!parsed.success) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'E4001', message: parsed.error.errors[0].message },
-        });
-      }
-      targetDate = parsed.data.date;
-    } else {
-      targetDate = getTodayDate();
+  // Parse and validate date
+  let targetDate: string;
+  if (req.query.date) {
+    const parsed = dateQuerySchema.safeParse({ date: req.query.date });
+    if (!parsed.success) {
+      return errors.validation(res, parsed.error.errors[0].message);
     }
-
-    // Calculate start and end of day
-    const startOfDay = new Date(`${targetDate}T00:00:00.000Z`);
-    const endOfDay = new Date(`${targetDate}T23:59:59.999Z`);
-
-    // Fetch jobs assigned to this technician for the day
-    const jobs = await prisma.job.findMany({
-      where: {
-        organizationId: orgId,
-        assignedToId: userId,
-        scheduledAt: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-      },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            email: true,
-            address: true,
-          },
-        },
-      },
-      orderBy: {
-        scheduledAt: 'asc',
-      },
-    });
-
-    // Calculate stats
-    const totalJobs = jobs.length;
-    const completedJobs = jobs.filter(j => j.status === 'completed').length;
-    const estimatedHours = calculateEstimatedHours(jobs);
-
-    // Identify current and next job
-    const { currentJobId, nextJobId } = identifyCurrentAndNextJob(jobs);
-
-    res.json({
-      success: true,
-      data: {
-        date: targetDate,
-        jobs,
-        stats: {
-          totalJobs,
-          completedJobs,
-          estimatedHours,
-        },
-        currentJobId,
-        nextJobId,
-      },
-    });
-  } catch (error) {
-    logger.error('Error fetching technician day view', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to fetch day view' },
-    });
+    targetDate = parsed.data.date;
+  } else {
+    targetDate = getTodayDate();
   }
-});
+
+  // Calculate start and end of day
+  const startOfDay = new Date(`${targetDate}T00:00:00.000Z`);
+  const endOfDay = new Date(`${targetDate}T23:59:59.999Z`);
+
+  // Fetch jobs assigned to this technician for the day
+  const jobs = await prisma.job.findMany({
+    where: {
+      organizationId: orgId,
+      assignedToId: userId,
+      scheduledAt: {
+        gte: startOfDay,
+        lte: endOfDay,
+      },
+    },
+    include: {
+      customer: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          email: true,
+          address: true,
+        },
+      },
+    },
+    orderBy: {
+      scheduledAt: 'asc',
+    },
+  });
+
+  // Calculate stats
+  const totalJobs = jobs.length;
+  const completedJobs = jobs.filter(j => j.status === 'completed').length;
+  const estimatedHours = calculateEstimatedHours(jobs);
+
+  // Identify current and next job
+  const { currentJobId, nextJobId } = identifyCurrentAndNextJob(jobs);
+
+  sendSuccess(res, {
+    date: targetDate,
+    jobs,
+    stats: {
+      totalJobs,
+      completedJobs,
+      estimatedHours,
+    },
+    currentJobId,
+    nextJobId,
+  });
+}));
 
 /**
  * GET /api/technician/route
@@ -358,165 +345,137 @@ router.get('/day', async (req, res) => {
  * Query params:
  *   - date: YYYY-MM-DD format (defaults to today)
  */
-router.get('/route', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const orgId = req.auth!.organizationId;
+router.get('/route', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const orgId = req.auth!.organizationId;
 
-    // Parse and validate date
-    let targetDate: string;
-    if (req.query.date) {
-      const parsed = dateQuerySchema.safeParse({ date: req.query.date });
-      if (!parsed.success) {
-        return res.status(400).json({
-          success: false,
-          error: { code: 'E4001', message: parsed.error.errors[0].message },
-        });
-      }
-      targetDate = parsed.data.date;
-    } else {
-      targetDate = getTodayDate();
+  // Parse and validate date
+  let targetDate: string;
+  if (req.query.date) {
+    const parsed = dateQuerySchema.safeParse({ date: req.query.date });
+    if (!parsed.success) {
+      return errors.validation(res, parsed.error.errors[0].message);
     }
-
-    // Calculate start and end of day
-    const startOfDay = new Date(`${targetDate}T00:00:00.000Z`);
-    const endOfDay = new Date(`${targetDate}T23:59:59.999Z`);
-
-    // Fetch jobs assigned to this technician for the day
-    const jobs = await prisma.job.findMany({
-      where: {
-        organizationId: orgId,
-        assignedToId: userId,
-        scheduledAt: {
-          gte: startOfDay,
-          lte: endOfDay,
-        },
-        // Exclude completed and canceled jobs from route
-        status: {
-          notIn: ['completed', 'canceled'],
-        },
-      },
-      include: {
-        customer: {
-          select: {
-            id: true,
-            firstName: true,
-            lastName: true,
-            phone: true,
-            address: true,
-          },
-        },
-      },
-      orderBy: {
-        scheduledAt: 'asc',
-      },
-    });
-
-    // Extract coordinates and prepare for optimization
-    const jobsWithCoords: JobWithDistance[] = jobs.map(job => ({
-      id: job.id,
-      title: job.title,
-      scheduledAt: job.scheduledAt,
-      status: job.status,
-      estimatedValue: job.estimatedValue,
-      description: job.description,
-      customer: {
-        id: job.customer.id,
-        firstName: job.customer.firstName,
-        lastName: job.customer.lastName,
-        phone: job.customer.phone,
-        address: job.customer.address,
-      },
-      coordinates: extractCoordinates(job.customer.address),
-    }));
-
-    // Run nearest-neighbor optimization
-    const { optimizedOrder, totalDistance } = optimizeRouteNearestNeighbor(jobsWithCoords);
-
-    // Estimate total duration (distance in miles / average speed of 25 mph + job time)
-    const drivingHours = totalDistance / 25;
-    const jobHours = calculateEstimatedHours(jobs);
-    const totalDuration = Math.round((drivingHours + jobHours) * 60); // minutes
-
-    // Reorder jobs according to optimized order
-    const orderedJobs = optimizedOrder.map(id =>
-      jobsWithCoords.find(j => j.id === id)
-    ).filter(Boolean);
-
-    res.json({
-      success: true,
-      data: {
-        date: targetDate,
-        jobs: orderedJobs,
-        optimizedOrder,
-        totalDistance,
-        totalDuration,
-      },
-    });
-  } catch (error) {
-    logger.error('Error fetching technician route', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to fetch route' },
-    });
+    targetDate = parsed.data.date;
+  } else {
+    targetDate = getTodayDate();
   }
-});
+
+  // Calculate start and end of day
+  const startOfDay = new Date(`${targetDate}T00:00:00.000Z`);
+  const endOfDay = new Date(`${targetDate}T23:59:59.999Z`);
+
+  // Fetch jobs assigned to this technician for the day
+  const jobs = await prisma.job.findMany({
+    where: {
+      organizationId: orgId,
+      assignedToId: userId,
+      scheduledAt: {
+        gte: startOfDay,
+        lte: endOfDay,
+      },
+      // Exclude completed and canceled jobs from route
+      status: {
+        notIn: ['completed', 'canceled'],
+      },
+    },
+    include: {
+      customer: {
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          phone: true,
+          address: true,
+        },
+      },
+    },
+    orderBy: {
+      scheduledAt: 'asc',
+    },
+  });
+
+  // Extract coordinates and prepare for optimization
+  const jobsWithCoords: JobWithDistance[] = jobs.map(job => ({
+    id: job.id,
+    title: job.title,
+    scheduledAt: job.scheduledAt,
+    status: job.status,
+    estimatedValue: job.estimatedValue,
+    description: job.description,
+    customer: {
+      id: job.customer.id,
+      firstName: job.customer.firstName,
+      lastName: job.customer.lastName,
+      phone: job.customer.phone,
+      address: job.customer.address,
+    },
+    coordinates: extractCoordinates(job.customer.address),
+  }));
+
+  // Run nearest-neighbor optimization
+  const { optimizedOrder, totalDistance } = optimizeRouteNearestNeighbor(jobsWithCoords);
+
+  // Estimate total duration (distance in miles / average speed of 25 mph + job time)
+  const drivingHours = totalDistance / 25;
+  const jobHours = calculateEstimatedHours(jobs);
+  const totalDuration = Math.round((drivingHours + jobHours) * 60); // minutes
+
+  // Reorder jobs according to optimized order
+  const orderedJobs = optimizedOrder.map(id =>
+    jobsWithCoords.find(j => j.id === id)
+  ).filter(Boolean);
+
+  sendSuccess(res, {
+    date: targetDate,
+    jobs: orderedJobs,
+    optimizedOrder,
+    totalDistance,
+    totalDuration,
+  });
+}));
 
 /**
  * POST /api/technician/clock-in
  *
  * Records technician clock-in time for the current day
  */
-router.post('/clock-in', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const orgId = req.auth!.organizationId;
-    const today = getTodayDate();
+router.post('/clock-in', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const orgId = req.auth!.organizationId;
+  const today = getTodayDate();
 
-    // Check if already clocked in
-    const existing = await prisma.timeEntry.findUnique({
-      where: {
-        userId_date: { userId, date: today },
-      },
-    });
+  // Check if already clocked in
+  const existing = await prisma.timeEntry.findUnique({
+    where: {
+      userId_date: { userId, date: today },
+    },
+  });
 
-    if (existing && !existing.clockOutAt) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4002', message: 'Already clocked in for today' },
-      });
-    }
-
-    // Create new time entry
-    const entry = await prisma.timeEntry.create({
-      data: {
-        userId,
-        organizationId: orgId,
-        date: today,
-        clockInAt: new Date(),
-        breakMinutes: 0,
-      },
-    });
-
-    logger.info('Technician clocked in', { userId, date: today });
-
-    res.status(201).json({
-      success: true,
-      data: {
-        id: entry.id,
-        date: entry.date,
-        clockInAt: entry.clockInAt,
-        message: 'Successfully clocked in',
-      },
-    });
-  } catch (error) {
-    logger.error('Error recording clock-in', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to record clock-in' },
-    });
+  if (existing && !existing.clockOutAt) {
+    return errors.validation(res, 'Already clocked in for today');
   }
-});
+
+  // Create new time entry
+  const entry = await prisma.timeEntry.create({
+    data: {
+      userId,
+      organizationId: orgId,
+      date: today,
+      clockInAt: new Date(),
+      breakMinutes: 0,
+    },
+  });
+
+  logger.info('Technician clocked in', { userId, date: today });
+
+  sendSuccess(res, {
+    id: entry.id,
+    date: entry.date,
+    clockInAt: entry.clockInAt,
+    message: 'Successfully clocked in',
+  }, 201);
+}));
 
 /**
  * POST /api/technician/clock-out
@@ -525,70 +484,53 @@ router.post('/clock-in', async (req, res) => {
  * Body (optional):
  *   - breakMinutes: number of minutes spent on break
  */
-router.post('/clock-out', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const today = getTodayDate();
-    const breakMinutes = parseInt(req.body.breakMinutes) || 0;
+router.post('/clock-out', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const today = getTodayDate();
+  const breakMinutes = parseInt(req.body.breakMinutes) || 0;
 
-    // Check if clocked in
-    const existing = await prisma.timeEntry.findUnique({
-      where: {
-        userId_date: { userId, date: today },
-      },
-    });
+  // Check if clocked in
+  const existing = await prisma.timeEntry.findUnique({
+    where: {
+      userId_date: { userId, date: today },
+    },
+  });
 
-    if (!existing) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4003', message: 'Not clocked in for today' },
-      });
-    }
-
-    if (existing.clockOutAt) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4004', message: 'Already clocked out for today' },
-      });
-    }
-
-    // Calculate hours worked
-    const clockOutAt = new Date();
-    const msWorked = clockOutAt.getTime() - existing.clockInAt.getTime();
-    const hoursWorked = Math.round((msWorked / 3600000 - breakMinutes / 60) * 100) / 100;
-
-    // Update time entry
-    const updated = await prisma.timeEntry.update({
-      where: { id: existing.id },
-      data: {
-        clockOutAt,
-        breakMinutes,
-        hoursWorked,
-      },
-    });
-
-    logger.info('Technician clocked out', { userId, date: today, hoursWorked });
-
-    res.json({
-      success: true,
-      data: {
-        id: updated.id,
-        date: updated.date,
-        clockInAt: updated.clockInAt,
-        clockOutAt: updated.clockOutAt,
-        breakMinutes: updated.breakMinutes,
-        hoursWorked,
-        message: 'Successfully clocked out',
-      },
-    });
-  } catch (error) {
-    logger.error('Error recording clock-out', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to record clock-out' },
-    });
+  if (!existing) {
+    return errors.validation(res, 'Not clocked in for today');
   }
-});
+
+  if (existing.clockOutAt) {
+    return errors.validation(res, 'Already clocked out for today');
+  }
+
+  // Calculate hours worked
+  const clockOutAt = new Date();
+  const msWorked = clockOutAt.getTime() - existing.clockInAt.getTime();
+  const hoursWorked = Math.round((msWorked / 3600000 - breakMinutes / 60) * 100) / 100;
+
+  // Update time entry
+  const updated = await prisma.timeEntry.update({
+    where: { id: existing.id },
+    data: {
+      clockOutAt,
+      breakMinutes,
+      hoursWorked,
+    },
+  });
+
+  logger.info('Technician clocked out', { userId, date: today, hoursWorked });
+
+  sendSuccess(res, {
+    id: updated.id,
+    date: updated.date,
+    clockInAt: updated.clockInAt,
+    clockOutAt: updated.clockOutAt,
+    breakMinutes: updated.breakMinutes,
+    hoursWorked,
+    message: 'Successfully clocked out',
+  });
+}));
 
 /**
  * GET /api/technician/timesheet
@@ -597,168 +539,137 @@ router.post('/clock-out', async (req, res) => {
  * Query params:
  *   - week: YYYY-Www format (e.g., 2026-W04)
  */
-router.get('/timesheet', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const orgId = req.auth!.organizationId;
+router.get('/timesheet', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const orgId = req.auth!.organizationId;
 
-    // Parse and validate week
-    if (!req.query.week) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4001', message: 'Week parameter is required (format: YYYY-Www)' },
-      });
-    }
-
-    const parsed = weekQuerySchema.safeParse({ week: req.query.week });
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'E4001', message: parsed.error.errors[0].message },
-      });
-    }
-
-    const weekString = parsed.data.week;
-    const { start, end } = getWeekDates(weekString);
-
-    // Get date strings for the week
-    const dateStrings: string[] = [];
-    const current = new Date(start);
-    while (current <= end) {
-      dateStrings.push(current.toISOString().split('T')[0]);
-      current.setDate(current.getDate() + 1);
-    }
-
-    // Fetch time entries for the week from database
-    const weekEntries = await prisma.timeEntry.findMany({
-      where: {
-        userId,
-        date: { in: dateStrings },
-      },
-      orderBy: { date: 'asc' },
-    });
-
-    // Calculate daily breakdown
-    const dailyBreakdown = weekEntries.map(entry => {
-      let hoursWorked = entry.hoursWorked || 0;
-      if (!entry.clockOutAt) {
-        // Still clocked in - calculate live
-        const msWorked = Date.now() - entry.clockInAt.getTime();
-        hoursWorked = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
-      }
-
-      return {
-        date: entry.date,
-        clockInAt: entry.clockInAt,
-        clockOutAt: entry.clockOutAt,
-        breakMinutes: entry.breakMinutes,
-        hoursWorked,
-      };
-    });
-
-    // Calculate totals
-    const totalHoursWorked = dailyBreakdown.reduce((sum, d) => sum + d.hoursWorked, 0);
-    const totalBreakMinutes = dailyBreakdown.reduce((sum, d) => sum + d.breakMinutes, 0);
-    const daysWorked = dailyBreakdown.length;
-
-    // Fetch job stats for the week
-    const jobStats = await prisma.job.groupBy({
-      by: ['status'],
-      where: {
-        organizationId: orgId,
-        assignedToId: userId,
-        scheduledAt: {
-          gte: start,
-          lte: end,
-        },
-      },
-      _count: true,
-    });
-
-    const totalJobs = jobStats.reduce((sum, s) => sum + s._count, 0);
-    const completedJobs = jobStats.find(s => s.status === 'completed')?._count || 0;
-
-    res.json({
-      success: true,
-      data: {
-        week: weekString,
-        weekStart: start.toISOString().split('T')[0],
-        weekEnd: end.toISOString().split('T')[0],
-        summary: {
-          totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
-          totalBreakMinutes,
-          daysWorked,
-          totalJobs,
-          completedJobs,
-          averageHoursPerDay: daysWorked > 0
-            ? Math.round((totalHoursWorked / daysWorked) * 100) / 100
-            : 0,
-        },
-        dailyBreakdown,
-      },
-    });
-  } catch (error) {
-    logger.error('Error fetching timesheet', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to fetch timesheet' },
-    });
+  // Parse and validate week
+  if (!req.query.week) {
+    return errors.validation(res, 'Week parameter is required (format: YYYY-Www)');
   }
-});
+
+  const parsed = weekQuerySchema.safeParse({ week: req.query.week });
+  if (!parsed.success) {
+    return errors.validation(res, parsed.error.errors[0].message);
+  }
+
+  const weekString = parsed.data.week;
+  const { start, end } = getWeekDates(weekString);
+
+  // Get date strings for the week
+  const dateStrings: string[] = [];
+  const current = new Date(start);
+  while (current <= end) {
+    dateStrings.push(current.toISOString().split('T')[0]);
+    current.setDate(current.getDate() + 1);
+  }
+
+  // Fetch time entries for the week from database
+  const weekEntries = await prisma.timeEntry.findMany({
+    where: {
+      userId,
+      date: { in: dateStrings },
+    },
+    orderBy: { date: 'asc' },
+  });
+
+  // Calculate daily breakdown
+  const dailyBreakdown = weekEntries.map(entry => {
+    let hoursWorked = entry.hoursWorked || 0;
+    if (!entry.clockOutAt) {
+      // Still clocked in - calculate live
+      const msWorked = Date.now() - entry.clockInAt.getTime();
+      hoursWorked = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
+    }
+
+    return {
+      date: entry.date,
+      clockInAt: entry.clockInAt,
+      clockOutAt: entry.clockOutAt,
+      breakMinutes: entry.breakMinutes,
+      hoursWorked,
+    };
+  });
+
+  // Calculate totals
+  const totalHoursWorked = dailyBreakdown.reduce((sum, d) => sum + d.hoursWorked, 0);
+  const totalBreakMinutes = dailyBreakdown.reduce((sum, d) => sum + d.breakMinutes, 0);
+  const daysWorked = dailyBreakdown.length;
+
+  // Fetch job stats for the week
+  const jobStats = await prisma.job.groupBy({
+    by: ['status'],
+    where: {
+      organizationId: orgId,
+      assignedToId: userId,
+      scheduledAt: {
+        gte: start,
+        lte: end,
+      },
+    },
+    _count: true,
+  });
+
+  const totalJobs = jobStats.reduce((sum, s) => sum + s._count, 0);
+  const completedJobs = jobStats.find(s => s.status === 'completed')?._count || 0;
+
+  sendSuccess(res, {
+    week: weekString,
+    weekStart: start.toISOString().split('T')[0],
+    weekEnd: end.toISOString().split('T')[0],
+    summary: {
+      totalHoursWorked: Math.round(totalHoursWorked * 100) / 100,
+      totalBreakMinutes,
+      daysWorked,
+      totalJobs,
+      completedJobs,
+      averageHoursPerDay: daysWorked > 0
+        ? Math.round((totalHoursWorked / daysWorked) * 100) / 100
+        : 0,
+    },
+    dailyBreakdown,
+  });
+}));
 
 /**
  * GET /api/technician/status
  *
  * Returns current clock-in status for today
  */
-router.get('/status', async (req, res) => {
-  try {
-    const userId = req.auth!.userId;
-    const today = getTodayDate();
+router.get('/status', asyncHandler(async (req, res) => {
+  const userId = req.auth!.userId;
+  const today = getTodayDate();
 
-    const entry = await prisma.timeEntry.findUnique({
-      where: {
-        userId_date: { userId, date: today },
-      },
-    });
+  const entry = await prisma.timeEntry.findUnique({
+    where: {
+      userId_date: { userId, date: today },
+    },
+  });
 
-    if (!entry) {
-      return res.json({
-        success: true,
-        data: {
-          date: today,
-          isClockedIn: false,
-          clockInAt: null,
-          clockOutAt: null,
-        },
-      });
-    }
-
-    // Calculate hours worked so far if clocked in
-    let hoursWorkedSoFar = 0;
-    if (!entry.clockOutAt) {
-      const msWorked = Date.now() - entry.clockInAt.getTime();
-      hoursWorkedSoFar = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
-    }
-
-    res.json({
-      success: true,
-      data: {
-        date: today,
-        isClockedIn: !entry.clockOutAt,
-        clockInAt: entry.clockInAt,
-        clockOutAt: entry.clockOutAt,
-        breakMinutes: entry.breakMinutes,
-        hoursWorkedSoFar: !entry.clockOutAt ? hoursWorkedSoFar : undefined,
-      },
-    });
-  } catch (error) {
-    logger.error('Error fetching technician status', error);
-    res.status(500).json({
-      success: false,
-      error: { code: 'E9001', message: 'Failed to fetch status' },
+  if (!entry) {
+    return sendSuccess(res, {
+      date: today,
+      isClockedIn: false,
+      clockInAt: null,
+      clockOutAt: null,
     });
   }
-});
+
+  // Calculate hours worked so far if clocked in
+  let hoursWorkedSoFar = 0;
+  if (!entry.clockOutAt) {
+    const msWorked = Date.now() - entry.clockInAt.getTime();
+    hoursWorkedSoFar = Math.round((msWorked / 3600000 - entry.breakMinutes / 60) * 100) / 100;
+  }
+
+  sendSuccess(res, {
+    date: today,
+    isClockedIn: !entry.clockOutAt,
+    clockInAt: entry.clockInAt,
+    clockOutAt: entry.clockOutAt,
+    breakMinutes: entry.breakMinutes,
+    hoursWorkedSoFar: !entry.clockOutAt ? hoursWorkedSoFar : undefined,
+  });
+}));
 
 export default router;

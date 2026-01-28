@@ -16,6 +16,50 @@ import { sms } from '../services/sms';
 import { updateAttributionStage } from '../services/attribution';
 import { logWebhook, markWebhookProcessed, markWebhookIgnored } from '../services/webhooks';
 
+/**
+ * Stripe Webhook Type Definitions
+ */
+
+type SubscriptionTier = 'starter' | 'growth' | 'scale';
+
+interface StripeSubscriptionMetadata {
+  organizationId?: string;
+  planId?: SubscriptionTier;
+}
+
+interface StripeSubscription {
+  id: string;
+  status: string;
+  metadata: StripeSubscriptionMetadata;
+}
+
+interface StripeCheckoutSession {
+  customer: string;
+  subscription: string;
+  metadata: StripeSubscriptionMetadata;
+}
+
+interface StripePaymentIntent {
+  id: string;
+  amount: number;
+  metadata: {
+    invoiceId?: string;
+  };
+  payment_method_types?: string[];
+  last_payment_error?: {
+    message?: string;
+  };
+}
+
+interface StripeWebhookPayload {
+  created?: number;
+  data?: {
+    object?: {
+      id?: string;
+    };
+  };
+}
+
 const router = Router();
 
 /**
@@ -63,7 +107,7 @@ async function shouldProcessSubscriptionEvent(
   }
 
   // Check if the event in the payload matches this subscription
-  const payload = latestWebhook.payload as any;
+  const payload = latestWebhook.payload as StripeWebhookPayload;
   if (payload?.data?.object?.id !== subscriptionId) {
     return true; // Different subscription, process this one
   }
@@ -128,7 +172,7 @@ router.post('/', async (req: Request, res: Response) => {
 
       case 'customer.subscription.updated': {
         // Check event ordering to prevent out-of-order updates
-        const subscription = event.data.object as any;
+        const subscription = event.data.object as StripeSubscription;
         if (await shouldProcessSubscriptionEvent(subscription.id, event.created)) {
           await handleSubscriptionUpdated(subscription);
         } else {
@@ -140,7 +184,7 @@ router.post('/', async (req: Request, res: Response) => {
 
       case 'customer.subscription.deleted': {
         // Check event ordering to prevent out-of-order updates
-        const subscription = event.data.object as any;
+        const subscription = event.data.object as StripeSubscription;
         if (await shouldProcessSubscriptionEvent(subscription.id, event.created)) {
           await handleSubscriptionDeleted(subscription);
         } else {
@@ -178,7 +222,7 @@ router.post('/', async (req: Request, res: Response) => {
  * Handle checkout.session.completed
  * Update organization with subscription info
  */
-async function handleCheckoutCompleted(session: any) {
+async function handleCheckoutCompleted(session: StripeCheckoutSession) {
   const { organizationId, planId } = session.metadata || {};
 
   if (!organizationId) {
@@ -207,7 +251,7 @@ async function handleCheckoutCompleted(session: any) {
  * Handle customer.subscription.updated
  * Sync subscription status and plan changes
  */
-async function handleSubscriptionUpdated(subscription: any) {
+async function handleSubscriptionUpdated(subscription: StripeSubscription) {
   const { organizationId, planId } = subscription.metadata || {};
 
   if (!organizationId) {
@@ -258,7 +302,7 @@ async function handleSubscriptionUpdated(subscription: any) {
  * Handle customer.subscription.deleted
  * Mark subscription as cancelled
  */
-async function handleSubscriptionDeleted(subscription: any) {
+async function handleSubscriptionDeleted(subscription: StripeSubscription) {
   const org = await prisma.organization.findFirst({
     where: { stripeSubscriptionId: subscription.id },
     select: { id: true },
@@ -288,7 +332,7 @@ async function handleSubscriptionDeleted(subscription: any) {
 /**
  * Detect payment method type from Stripe payment_intent
  */
-function detectPaymentMethod(paymentIntent: any): 'card' | 'ach' | 'other' {
+function detectPaymentMethod(paymentIntent: StripePaymentIntent): 'card' | 'ach' | 'other' {
   const paymentMethodType = paymentIntent.payment_method_types?.[0] || '';
   if (paymentMethodType === 'card') return 'card';
   if (paymentMethodType === 'us_bank_account' || paymentMethodType === 'ach_debit') return 'ach';
@@ -299,7 +343,7 @@ function detectPaymentMethod(paymentIntent: any): 'card' | 'ach' | 'other' {
  * Handle payment_intent.succeeded
  * Mark invoice as paid, create Payment record, and send confirmation SMS
  */
-async function handlePaymentSucceeded(paymentIntent: any) {
+async function handlePaymentSucceeded(paymentIntent: StripePaymentIntent) {
   const { invoiceId } = paymentIntent.metadata || {};
 
   if (!invoiceId) {
@@ -414,7 +458,7 @@ async function handlePaymentSucceeded(paymentIntent: any) {
  * Handle payment_intent.payment_failed
  * Create Payment record with failed status, update invoice status, and notify customer
  */
-async function handlePaymentFailed(paymentIntent: any) {
+async function handlePaymentFailed(paymentIntent: StripePaymentIntent) {
   const { invoiceId } = paymentIntent.metadata || {};
 
   logger.warn('Payment failed', {

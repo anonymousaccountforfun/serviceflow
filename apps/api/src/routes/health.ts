@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { prisma } from '@serviceflow/database';
+import { asyncHandler } from '../utils/api-response';
 
 const router = Router();
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (_req, res) => {
   try {
     // Check database connection
     await prisma.$queryRaw`SELECT 1`;
-    
+
     res.json({
       status: 'healthy',
       timestamp: new Date().toISOString(),
@@ -16,7 +17,7 @@ router.get('/', async (req, res) => {
         api: 'running',
       },
     });
-  } catch (error) {
+  } catch {
     res.status(503).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
@@ -26,6 +27,6 @@ router.get('/', async (req, res) => {
       },
     });
   }
-});
+}));
 
 export default router;

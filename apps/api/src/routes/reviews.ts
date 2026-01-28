@@ -4,6 +4,7 @@ import { events } from '../services/events';
 import { sms } from '../services/sms';
 import { reviewSubmitLimiter } from '../middleware/rate-limit';
 import { logger } from '../lib/logger';
+import { asyncHandler, sendSuccess, errors } from '../utils/api-response';
 
 const router = Router();
 
@@ -25,54 +26,54 @@ function escapeHtml(str: string): string {
  * GET /r/:id - Review link landing page (public, no auth)
  * Tracks the click and redirects to Google review or shows feedback form
  */
-router.get('/:id', async (req, res) => {
+router.get('/:id', asyncHandler(async (req, res) => {
   const { id } = req.params;
 
-  try {
-    const reviewRequest = await prisma.reviewRequest.findUnique({
-      where: { id },
-      include: {
-        organization: true,
-        customer: true,
-        job: true,
-      },
-    });
+  const reviewRequest = await prisma.reviewRequest.findUnique({
+    where: { id },
+    include: {
+      organization: true,
+      customer: true,
+      job: true,
+    },
+  });
 
-    if (!reviewRequest) {
-      return res.status(404).send('Review request not found');
-    }
+  if (!reviewRequest) {
+    return res.status(404).send('Review request not found');
+  }
 
-    // Track the click atomically (only update if not already clicked)
-    // Using updateMany with a condition prevents race conditions
-    const clickUpdate = await prisma.reviewRequest.updateMany({
-      where: {
-        id,
-        clickedAt: null, // Only update if not already clicked
-      },
-      data: {
-        status: 'clicked',
-        clickedAt: new Date(),
-      },
-    });
+  // Track the click atomically (only update if not already clicked)
+  // Using updateMany with a condition prevents race conditions
+  const clickUpdate = await prisma.reviewRequest.updateMany({
+    where: {
+      id,
+      clickedAt: null, // Only update if not already clicked
+    },
+    data: {
+      status: 'clicked',
+      clickedAt: new Date(),
+    },
+  });
 
-    // Only log if this was the first click (update actually happened)
-    if (clickUpdate.count > 0) {
-      logger.info('Review link clicked', { reviewRequestId: id });
-    }
+  // Only log if this was the first click (update actually happened)
+  if (clickUpdate.count > 0) {
+    logger.info('Review link clicked', { reviewRequestId: id });
+  }
 
-    // Get organization's Google review link from settings
-    const settings = reviewRequest.organization.settings as any;
-    const googleReviewUrl = settings?.reviewSettings?.googleReviewUrl;
+  // Get organization's Google review link from settings
+  const settings = reviewRequest.organization.settings as Record<string, unknown>;
+  const reviewSettings = settings?.reviewSettings as Record<string, unknown> | undefined;
+  const googleReviewUrl = reviewSettings?.googleReviewUrl as string | undefined;
 
-    // If organization has a Google review URL, redirect directly
-    if (googleReviewUrl) {
-      return res.redirect(googleReviewUrl);
-    }
+  // If organization has a Google review URL, redirect directly
+  if (googleReviewUrl) {
+    return res.redirect(googleReviewUrl);
+  }
 
-    // Otherwise, show a simple review landing page
-    // Escape organization name to prevent XSS
-    const orgName = escapeHtml(reviewRequest.organization.name);
-    const html = `
+  // Otherwise, show a simple review landing page
+  // Escape organization name to prevent XSS
+  const orgName = escapeHtml(reviewRequest.organization.name);
+  const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -205,133 +206,121 @@ router.get('/:id', async (req, res) => {
   </script>
 </body>
 </html>
-    `;
+  `;
 
-    res.setHeader('Content-Type', 'text/html');
-    res.send(html);
-  } catch (error) {
-    logger.error('Error loading review page', error);
-    res.status(500).send('Something went wrong');
-  }
-});
+  res.setHeader('Content-Type', 'text/html');
+  res.send(html);
+}));
 
 /**
  * POST /api/reviews/:id/submit - Submit a review (public)
  * Rate limited: 5 submissions per 15 minutes per IP+review combination
  */
-router.post('/:id/submit', reviewSubmitLimiter, async (req, res) => {
+router.post('/:id/submit', reviewSubmitLimiter, asyncHandler(async (req, res) => {
   const { id } = req.params;
   const { rating, feedback } = req.body;
 
   // Validate rating is an integer between 1-5
   if (typeof rating !== 'number' || !Number.isInteger(rating) || rating < 1 || rating > 5) {
-    return res.status(400).json({
-      success: false,
-      error: { code: 'E2001', message: 'Rating must be an integer between 1 and 5' },
-    });
+    return errors.validation(res, 'Rating must be an integer between 1 and 5');
   }
 
-  try {
-    const reviewRequest = await prisma.reviewRequest.findUnique({
-      where: { id },
-      include: { organization: true, customer: true, job: true },
-    });
+  const reviewRequest = await prisma.reviewRequest.findUnique({
+    where: { id },
+    include: { organization: true, customer: true, job: true },
+  });
 
-    if (!reviewRequest) {
-      return res.status(404).json({ error: 'Review request not found' });
-    }
+  if (!reviewRequest) {
+    return errors.notFound(res, 'Review request');
+  }
 
-    // Create the review
-    const review = await prisma.review.create({
-      data: {
-        organizationId: reviewRequest.organizationId,
-        customerId: reviewRequest.customerId,
-        jobId: reviewRequest.jobId,
-        platform: 'internal',
-        rating,
-        content: feedback || null,
-        reviewerName: reviewRequest.customer
-          ? `${reviewRequest.customer.firstName} ${reviewRequest.customer.lastName}`
-          : 'Customer',
-        requestSentAt: reviewRequest.sentAt,
-      },
-    });
-
-    // Update review request status
-    await prisma.reviewRequest.update({
-      where: { id },
-      data: {
-        status: 'completed',
-        sentimentResponse: rating,
-        reviewId: review.id,
-      },
-    });
-
-    // Emit review received event
-    await events.emit({
-      type: 'review.received',
+  // Create the review
+  const review = await prisma.review.create({
+    data: {
       organizationId: reviewRequest.organizationId,
-      aggregateType: 'review',
-      aggregateId: review.id,
-      data: {
-        reviewId: review.id,
-        reviewRequestId: id,
-        customerId: reviewRequest.customerId,
-        jobId: reviewRequest.jobId,
-        rating,
-        platform: 'internal',
-      },
-    });
+      customerId: reviewRequest.customerId,
+      jobId: reviewRequest.jobId,
+      platform: 'internal',
+      rating,
+      content: feedback || null,
+      reviewerName: reviewRequest.customer
+        ? `${reviewRequest.customer.firstName} ${reviewRequest.customer.lastName}`
+        : 'Customer',
+      requestSentAt: reviewRequest.sentAt,
+    },
+  });
 
-    logger.info('Review submitted', { rating, jobId: reviewRequest.jobId });
+  // Update review request status
+  await prisma.reviewRequest.update({
+    where: { id },
+    data: {
+      status: 'completed',
+      sentimentResponse: rating,
+      reviewId: review.id,
+    },
+  });
 
-    // If high rating (4-5), suggest leaving a Google review
-    const settings = reviewRequest.organization.settings as any;
-    const googleReviewUrl = settings?.reviewSettings?.googleReviewUrl;
+  // Emit review received event
+  await events.emit({
+    type: 'review.received',
+    organizationId: reviewRequest.organizationId,
+    aggregateType: 'review',
+    aggregateId: review.id,
+    data: {
+      reviewId: review.id,
+      reviewRequestId: id,
+      customerId: reviewRequest.customerId,
+      jobId: reviewRequest.jobId,
+      rating,
+      platform: 'internal',
+    },
+  });
 
-    if (rating >= 4 && googleReviewUrl) {
-      // Send follow-up SMS asking for Google review
-      if (reviewRequest.customer) {
-        await sms.sendTemplated({
-          organizationId: reviewRequest.organizationId,
-          customerId: reviewRequest.customerId,
-          to: reviewRequest.customer.phone,
-          templateType: 'review_request_followup',
-          variables: {
-            businessName: reviewRequest.organization.name,
-            customerName: reviewRequest.customer.firstName,
-            reviewLink: googleReviewUrl,
-          },
-        });
-      }
+  logger.info('Review submitted', { rating, jobId: reviewRequest.jobId });
 
-      return res.json({
-        success: true,
-        message: 'Thank you for your feedback!',
-        googleReviewUrl,
-      });
-    }
+  // If high rating (4-5), suggest leaving a Google review
+  const settings = reviewRequest.organization.settings as Record<string, unknown>;
+  const reviewSettings = settings?.reviewSettings as Record<string, unknown> | undefined;
+  const googleReviewUrl = reviewSettings?.googleReviewUrl as string | undefined;
 
-    // If low rating (1-3), send apology/follow-up
-    if (rating <= 3 && reviewRequest.customer) {
+  if (rating >= 4 && googleReviewUrl) {
+    // Send follow-up SMS asking for Google review
+    if (reviewRequest.customer) {
       await sms.sendTemplated({
         organizationId: reviewRequest.organizationId,
         customerId: reviewRequest.customerId,
         to: reviewRequest.customer.phone,
-        templateType: 'review_sentiment_check',
+        templateType: 'review_request_followup',
         variables: {
           businessName: reviewRequest.organization.name,
           customerName: reviewRequest.customer.firstName,
+          reviewLink: googleReviewUrl,
         },
       });
     }
 
-    res.json({ success: true, message: 'Thank you for your feedback!' });
-  } catch (error) {
-    logger.error('Error submitting review', error);
-    res.status(500).json({ error: 'Failed to submit review' });
+    return sendSuccess(res, {
+      message: 'Thank you for your feedback!',
+      googleReviewUrl,
+    });
   }
-});
+
+  // If low rating (1-3), send apology/follow-up
+  if (rating <= 3 && reviewRequest.customer) {
+    await sms.sendTemplated({
+      organizationId: reviewRequest.organizationId,
+      customerId: reviewRequest.customerId,
+      to: reviewRequest.customer.phone,
+      templateType: 'review_sentiment_check',
+      variables: {
+        businessName: reviewRequest.organization.name,
+        customerName: reviewRequest.customer.firstName,
+      },
+    });
+  }
+
+  sendSuccess(res, { message: 'Thank you for your feedback!' });
+}));
 
 /**
  * Handle SMS replies with sentiment (1-5 rating)
@@ -387,8 +376,9 @@ export async function handleSentimentReply(
     logger.info('Review received via SMS', { rating });
 
     // Send appropriate follow-up based on rating
-    const settings = reviewRequest.organization.settings as any;
-    const googleReviewUrl = settings?.reviewSettings?.googleReviewUrl;
+    const settings = reviewRequest.organization.settings as Record<string, unknown>;
+    const reviewSettings = settings?.reviewSettings as Record<string, unknown> | undefined;
+    const googleReviewUrl = reviewSettings?.googleReviewUrl as string | undefined;
 
     if (rating >= 4 && googleReviewUrl && reviewRequest.customer) {
       await sms.sendTemplated({

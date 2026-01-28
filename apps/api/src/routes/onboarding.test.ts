@@ -98,7 +98,7 @@ describe('Onboarding Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4010');
+      expect(response.body.error.code).toBe('E2001');
       expect(response.body.error.message).toContain('already has data');
     });
 
@@ -173,7 +173,7 @@ describe('Onboarding Routes', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E4011');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should update organization settings after removal', async () => {

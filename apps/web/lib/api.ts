@@ -17,11 +17,72 @@ import type {
   PhoneNumber,
   PhoneStatus,
   AvailablePhoneNumber,
+  CustomerAddress,
+  UserRole,
 } from './types';
-import type { ApiResponse, ApiError } from '@serviceflow/shared';
+import type { ApiResponse, ApiError, Call, CallDirection, CallStatus } from '@serviceflow/shared';
 
 // Re-export for convenience
 export type { ApiResponse, ApiError };
+
+// ============================================
+// API RESPONSE TYPES
+// ============================================
+
+/**
+ * Serialized Call type for API responses (dates as strings)
+ */
+interface SerializedCall {
+  id: string;
+  conversationId: string;
+  organizationId: string;
+  customerId?: string;
+  direction: CallDirection;
+  status: CallStatus;
+  from: string;
+  to: string;
+  duration?: number;
+  recordingUrl?: string;
+  transcriptUrl?: string;
+  transcript?: string;
+  summary?: string;
+  aiHandled: boolean;
+  twilioSid: string;
+  vapiCallId?: string;
+  startedAt: string;
+  endedAt?: string;
+  createdAt: string;
+  // Optional relations
+  customer?: Customer;
+  conversation?: Conversation;
+}
+
+/**
+ * Team member response from /api/team endpoint
+ */
+interface TeamMember {
+  id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
+  phone: string | null;
+  role: UserRole;
+  avatarUrl: string | null;
+  isActive: boolean;
+  createdAt: string;
+  jobCount: number;
+}
+
+/**
+ * AI ROI analytics response from /api/analytics/ai-roi
+ */
+export interface AIROIResponse {
+  period: { start: string; end: string };
+  callsAnsweredByAI: { total: number; percentage: number };
+  appointmentsBookedByAI: { count: number; estimatedValue: number; formatted: string };
+  emergencyVsRoutine: { emergency: number; routine: number };
+  afterHoursCallsHandled: number;
+}
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
@@ -87,7 +148,7 @@ interface DashboardData {
       id: string;
       firstName: string;
       lastName: string;
-      address?: any;
+      address?: CustomerAddress;
       city?: string;
     };
   }>;
@@ -109,7 +170,7 @@ class ApiClient {
   private async request<T>(
     method: string,
     path: string,
-    body?: any
+    body?: unknown
   ): Promise<ApiResponse<T>> {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -193,7 +254,7 @@ class ApiClient {
     const searchParams = new URLSearchParams();
     if (params?.startDate) searchParams.set('startDate', params.startDate);
     if (params?.endDate) searchParams.set('endDate', params.endDate);
-    return this.request<any>('GET', `/api/analytics/ai-roi?${searchParams}`);
+    return this.request<AIROIResponse>('GET', `/api/analytics/ai-roi?${searchParams}`);
   }
 
   // Calendar
@@ -240,7 +301,7 @@ class ApiClient {
 
   // Team
   async getTeam() {
-    return this.request<{ members: any[] }>('GET', '/api/team');
+    return this.request<{ members: TeamMember[] }>('GET', '/api/team');
   }
 
   // Conversations
@@ -307,11 +368,11 @@ class ApiClient {
     if (params?.status) searchParams.set('status', params.status);
     if (params?.page) searchParams.set('page', String(params.page));
     if (params?.limit) searchParams.set('limit', String(params.limit));
-    return this.request<any[]>('GET', `/api/calls?${searchParams}`);
+    return this.request<SerializedCall[]>('GET', `/api/calls?${searchParams}`);
   }
 
   async getCall(id: string) {
-    return this.request<any>('GET', `/api/calls/${id}`);
+    return this.request<SerializedCall>('GET', `/api/calls/${id}`);
   }
 
   // Reviews

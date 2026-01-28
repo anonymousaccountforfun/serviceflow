@@ -195,7 +195,7 @@ describe('Job Completion Routes (PRD-011)', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
   });
 
@@ -341,7 +341,7 @@ describe('Job Completion Routes (PRD-011)', () => {
         .expect(400);
 
       expect(response.body.success).toBe(false);
-      expect(response.body.error.code).toBe('E5001');
+      expect(response.body.error.code).toBe('E2001');
     });
 
     it('should validate required work summary fields', async () => {
