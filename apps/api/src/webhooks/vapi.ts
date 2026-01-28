@@ -19,6 +19,31 @@ import crypto from 'crypto';
 const router = Router();
 
 // ============================================
+// STATUS TRANSITION VALIDATION
+// ============================================
+
+/**
+ * Valid call status transitions - prevents out-of-order webhook updates
+ * Status can only move forward in this list (except completed which is terminal)
+ */
+const CALL_STATUS_ORDER: Record<string, number> = {
+  ringing: 1,
+  in_progress: 2,
+  completed: 3,
+  no_answer: 3, // Terminal states have same priority
+};
+
+/**
+ * Check if a status transition is valid (only allows forward transitions)
+ */
+function isValidStatusTransition(currentStatus: string, newStatus: string): boolean {
+  const currentOrder = CALL_STATUS_ORDER[currentStatus] ?? 0;
+  const newOrder = CALL_STATUS_ORDER[newStatus] ?? 0;
+  // Only allow forward transitions (or same status)
+  return newOrder >= currentOrder;
+}
+
+// ============================================
 // TYPES
 // ============================================
 
@@ -205,6 +230,7 @@ router.post('/', verifySignature, async (req: Request, res: Response) => {
 
 /**
  * Handle call status updates
+ * Uses status transition validation to prevent out-of-order updates from race conditions
  */
 async function handleStatusUpdate(payload: VapiWebhookPayload): Promise<void> {
   const { call } = payload.message;
@@ -215,6 +241,7 @@ async function handleStatusUpdate(payload: VapiWebhookPayload): Promise<void> {
   // Find our call record by vapiCallId
   const callRecord = await prisma.call.findFirst({
     where: { vapiCallId: call.id },
+    select: { id: true, status: true },
   });
 
   if (!callRecord) {
@@ -232,6 +259,16 @@ async function handleStatusUpdate(payload: VapiWebhookPayload): Promise<void> {
   };
 
   const newStatus = statusMap[call.status] || 'completed';
+
+  // Validate status transition to prevent out-of-order webhook updates
+  if (!isValidStatusTransition(callRecord.status, newStatus)) {
+    logger.info('Ignoring out-of-order status update', {
+      callId: call.id,
+      currentStatus: callRecord.status,
+      attemptedStatus: newStatus,
+    });
+    return;
+  }
 
   await prisma.call.update({
     where: { id: callRecord.id },

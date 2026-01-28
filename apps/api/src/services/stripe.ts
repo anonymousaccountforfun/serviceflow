@@ -179,12 +179,13 @@ export async function createPaymentIntent(params: {
 }
 
 /**
- * Get payment intent status
+ * Get payment intent status and details
  */
 export async function getPaymentIntent(paymentIntentId: string): Promise<{
   status: string;
   amount: number;
   currency: string;
+  client_secret: string | null;
 }> {
   if (!stripe) throw new Error('Stripe is not configured');
 
@@ -194,7 +195,19 @@ export async function getPaymentIntent(paymentIntentId: string): Promise<{
     status: paymentIntent.status,
     amount: paymentIntent.amount,
     currency: paymentIntent.currency,
+    client_secret: paymentIntent.client_secret,
   };
+}
+
+/**
+ * Cancel a payment intent (for cleanup when DB operations fail)
+ */
+export async function cancelPaymentIntent(paymentIntentId: string): Promise<void> {
+  if (!stripe) throw new Error('Stripe is not configured');
+
+  await stripe.paymentIntents.cancel(paymentIntentId);
+
+  logger.info('Cancelled payment intent', { paymentIntentId });
 }
 
 /**
@@ -268,6 +281,7 @@ export default {
   createPortalSession,
   createPaymentIntent,
   getPaymentIntent,
+  cancelPaymentIntent,
   cancelSubscription,
   verifyWebhookSignature,
   getSubscription,

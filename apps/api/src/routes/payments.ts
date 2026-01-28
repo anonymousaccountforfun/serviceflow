@@ -151,25 +151,11 @@ router.post('/invoice/:id/intent', async (req: Request, res: Response) => {
           invoice.stripePaymentIntentId
         );
 
-        // If the intent is still valid, return it
+        // If the intent is still valid, return its client secret
         if (['requires_payment_method', 'requires_confirmation', 'requires_action'].includes(existingIntent.status)) {
-          // Get the client secret again (we don't store it)
-          const paymentIntent = await stripeService.createPaymentIntent({
-            amount: invoice.total,
-            invoiceId: invoice.id,
-            customerEmail: invoice.customer.email || '',
-            description: `Invoice ${invoice.id.slice(-8).toUpperCase()} - ${invoice.organization.name}`,
-            organizationId: invoice.organizationId,
-          });
-
-          // Update with new intent
-          await prisma.invoice.update({
-            where: { id },
-            data: { stripePaymentIntentId: paymentIntent.paymentIntentId },
-          });
-
+          // Return the existing intent's client secret
           return sendSuccess(res, {
-            clientSecret: paymentIntent.clientSecret,
+            clientSecret: existingIntent.client_secret,
           });
         }
       } catch (error) {
@@ -178,20 +164,50 @@ router.post('/invoice/:id/intent', async (req: Request, res: Response) => {
       }
     }
 
-    // Create new payment intent
-    const paymentIntent = await stripeService.createPaymentIntent({
-      amount: invoice.total, // Already in cents
-      invoiceId: invoice.id,
-      customerEmail: invoice.customer.email || '',
-      description: `Invoice ${invoice.id.slice(-8).toUpperCase()} - ${invoice.organization.name}`,
-      organizationId: invoice.organizationId,
-    });
+    // Create new payment intent and update invoice atomically
+    // This prevents orphaned payment intents if the DB update fails
+    let paymentIntent: { paymentIntentId: string; clientSecret: string };
 
-    // Save payment intent ID on invoice
-    await prisma.invoice.update({
-      where: { id },
-      data: { stripePaymentIntentId: paymentIntent.paymentIntentId },
-    });
+    try {
+      paymentIntent = await stripeService.createPaymentIntent({
+        amount: invoice.total, // Already in cents
+        invoiceId: invoice.id,
+        customerEmail: invoice.customer.email || '',
+        description: `Invoice ${invoice.id.slice(-8).toUpperCase()} - ${invoice.organization.name}`,
+        organizationId: invoice.organizationId,
+      });
+    } catch (stripeError) {
+      logger.error('Failed to create Stripe payment intent', { invoiceId: id, error: stripeError });
+      return errors.internal(res, 'Failed to create payment');
+    }
+
+    // Save payment intent ID on invoice - if this fails, we have an orphaned intent
+    // but that's safer than having a payment succeed with no DB record
+    try {
+      await prisma.invoice.update({
+        where: { id },
+        data: { stripePaymentIntentId: paymentIntent.paymentIntentId },
+      });
+    } catch (dbError) {
+      // Attempt to cancel the Stripe payment intent to prevent orphan
+      logger.error('Failed to update invoice with payment intent, attempting cleanup', {
+        invoiceId: id,
+        paymentIntentId: paymentIntent.paymentIntentId,
+        error: dbError,
+      });
+
+      try {
+        await stripeService.cancelPaymentIntent(paymentIntent.paymentIntentId);
+        logger.info('Cancelled orphaned payment intent', { paymentIntentId: paymentIntent.paymentIntentId });
+      } catch (cancelError) {
+        logger.error('Failed to cancel orphaned payment intent', {
+          paymentIntentId: paymentIntent.paymentIntentId,
+          error: cancelError,
+        });
+      }
+
+      return errors.internal(res, 'Failed to initialize payment');
+    }
 
     logger.info('Created payment intent for invoice', {
       invoiceId: id,

@@ -78,7 +78,48 @@ router.get('/roi/:token', async (req: Request, res: Response) => {
   const { period = 'last_30_days' } = req.query;
 
   try {
-    // Find and validate token
+    // ATOMIC view count increment with validation using raw SQL
+    // This prevents race conditions where concurrent requests can exceed maxViews
+    // The WHERE clause atomically checks expiry and view limit before incrementing
+    const updateResult = await prisma.$executeRaw`
+      UPDATE "ShareToken"
+      SET "viewCount" = "viewCount" + 1
+      WHERE "token" = ${token}
+        AND "expiresAt" > NOW()
+        AND ("maxViews" IS NULL OR "viewCount" < "maxViews")
+    `;
+
+    // If no rows updated, the token was expired, at max views, or doesn't exist
+    if (updateResult === 0) {
+      // Fetch token to determine the specific error
+      const existingToken = await prisma.shareToken.findUnique({
+        where: { token },
+        select: { expiresAt: true, maxViews: true, viewCount: true },
+      });
+
+      if (!existingToken) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Share link not found or expired' },
+        });
+      }
+
+      if (existingToken.expiresAt < new Date()) {
+        return res.status(410).json({
+          success: false,
+          error: { code: 'EXPIRED', message: 'This share link has expired' },
+        });
+      }
+
+      if (existingToken.maxViews && existingToken.viewCount >= existingToken.maxViews) {
+        return res.status(410).json({
+          success: false,
+          error: { code: 'MAX_VIEWS', message: 'This share link has reached its view limit' },
+        });
+      }
+    }
+
+    // Now fetch the full token data
     const shareToken = await prisma.shareToken.findUnique({
       where: { token },
     });
@@ -89,28 +130,6 @@ router.get('/roi/:token', async (req: Request, res: Response) => {
         error: { code: 'NOT_FOUND', message: 'Share link not found or expired' },
       });
     }
-
-    // Check if expired
-    if (shareToken.expiresAt < new Date()) {
-      return res.status(410).json({
-        success: false,
-        error: { code: 'EXPIRED', message: 'This share link has expired' },
-      });
-    }
-
-    // Check max views
-    if (shareToken.maxViews && shareToken.viewCount >= shareToken.maxViews) {
-      return res.status(410).json({
-        success: false,
-        error: { code: 'MAX_VIEWS', message: 'This share link has reached its view limit' },
-      });
-    }
-
-    // Increment view count
-    await prisma.shareToken.update({
-      where: { id: shareToken.id },
-      data: { viewCount: { increment: 1 } },
-    });
 
     // Get organization info
     const organization = await prisma.organization.findUnique({

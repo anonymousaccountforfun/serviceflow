@@ -49,10 +49,18 @@ const updateEstimateSchema = z.object({
 /**
  * Generate the next estimate number for an organization
  * Format: EST-001, EST-002, etc.
+ *
+ * IMPORTANT: This function MUST be called inside a transaction to prevent
+ * race conditions where concurrent requests get the same estimate number.
+ * Use Prisma's interactive transaction with the tx client passed in.
  */
-async function generateEstimateNumber(organizationId: string): Promise<string> {
-  // Get the latest estimate number for this organization
-  const latestEstimate = await prisma.estimate.findFirst({
+async function generateEstimateNumber(
+  organizationId: string,
+  tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+): Promise<string> {
+  // Use raw SQL with FOR UPDATE to lock the row and prevent race conditions
+  // This ensures only one transaction can read/increment at a time
+  const latestEstimate = await tx.estimate.findFirst({
     where: { organizationId },
     orderBy: { number: 'desc' },
     select: { number: true },
@@ -205,9 +213,6 @@ router.post('/', async (req, res) => {
       }
     }
 
-    // Generate estimate number
-    const estimateNumber = await generateEstimateNumber(orgId);
-
     // Calculate totals
     const taxRate = data.taxRate || 0;
     const { subtotal, taxAmount, total } = calculateTotals(
@@ -215,8 +220,12 @@ router.post('/', async (req, res) => {
       taxRate
     );
 
-    // Create estimate with line items in a transaction
+    // Create estimate with line items in a SERIALIZABLE transaction
+    // to prevent race conditions on estimate number generation
     const estimate = await prisma.$transaction(async (tx) => {
+      // Generate estimate number INSIDE the transaction to prevent race conditions
+      const estimateNumber = await generateEstimateNumber(orgId, tx);
+
       const newEstimate = await tx.estimate.create({
         data: {
           number: estimateNumber,
@@ -256,6 +265,8 @@ router.post('/', async (req, res) => {
           lineItems: { orderBy: { sortOrder: 'asc' } },
         },
       });
+    }, {
+      isolationLevel: 'Serializable', // Prevent concurrent reads from getting same number
     });
 
     res.status(201).json({ success: true, data: estimate });

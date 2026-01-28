@@ -215,7 +215,49 @@ router.post('/:token', async (req: Request, res: Response) => {
   }
 
   try {
-    // Find and validate token
+    // ATOMIC token consumption: Find and mark as used in one operation
+    // This prevents TOCTOU race conditions where two concurrent requests
+    // could both check usedAt=null before either updates it
+    const tokenUpdateResult = await prisma.rescheduleToken.updateMany({
+      where: {
+        token,
+        usedAt: null, // Only update if not already used
+        expiresAt: { gt: new Date() }, // Only update if not expired
+      },
+      data: { usedAt: new Date() },
+    });
+
+    // If no rows updated, the token was already used, expired, or doesn't exist
+    if (tokenUpdateResult.count === 0) {
+      // Fetch token to determine the specific error
+      const existingToken = await prisma.rescheduleToken.findUnique({
+        where: { token },
+        select: { usedAt: true, expiresAt: true },
+      });
+
+      if (!existingToken) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Reschedule link not found' },
+        });
+      }
+
+      if (existingToken.expiresAt < new Date()) {
+        return res.status(410).json({
+          success: false,
+          error: { code: 'EXPIRED', message: 'This reschedule link has expired' },
+        });
+      }
+
+      if (existingToken.usedAt) {
+        return res.status(410).json({
+          success: false,
+          error: { code: 'USED', message: 'This reschedule link has already been used' },
+        });
+      }
+    }
+
+    // Now fetch the full token data (we know it's valid and now marked as used)
     const rescheduleToken = await prisma.rescheduleToken.findUnique({
       where: { token },
     });
@@ -224,20 +266,6 @@ router.post('/:token', async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         error: { code: 'NOT_FOUND', message: 'Reschedule link not found' },
-      });
-    }
-
-    if (rescheduleToken.expiresAt < new Date()) {
-      return res.status(410).json({
-        success: false,
-        error: { code: 'EXPIRED', message: 'This reschedule link has expired' },
-      });
-    }
-
-    if (rescheduleToken.usedAt) {
-      return res.status(410).json({
-        success: false,
-        error: { code: 'USED', message: 'This reschedule link has already been used' },
       });
     }
 
@@ -252,6 +280,11 @@ router.post('/:token', async (req: Request, res: Response) => {
     });
 
     if (!appointment) {
+      // Revert the token usage since we can't complete the operation
+      await prisma.rescheduleToken.update({
+        where: { id: rescheduleToken.id },
+        data: { usedAt: null },
+      });
       return res.status(404).json({
         success: false,
         error: { code: 'APPOINTMENT_NOT_FOUND', message: 'Appointment not found' },
@@ -264,6 +297,11 @@ router.post('/:token', async (req: Request, res: Response) => {
 
     // Validate new time is in the future
     if (newScheduledAt < new Date()) {
+      // Revert the token usage since we can't complete the operation
+      await prisma.rescheduleToken.update({
+        where: { id: rescheduleToken.id },
+        data: { usedAt: null },
+      });
       return res.status(400).json({
         success: false,
         error: { code: 'INVALID_TIME', message: 'New time must be in the future' },
@@ -287,6 +325,11 @@ router.post('/:token', async (req: Request, res: Response) => {
       });
 
       if (conflict) {
+        // Revert the token usage since we can't complete the operation
+        await prisma.rescheduleToken.update({
+          where: { id: rescheduleToken.id },
+          data: { usedAt: null },
+        });
         return res.status(409).json({
           success: false,
           error: { code: 'CONFLICT', message: 'Selected time slot is no longer available' },
@@ -311,11 +354,7 @@ router.post('/:token', async (req: Request, res: Response) => {
       },
     });
 
-    // Mark token as used
-    await prisma.rescheduleToken.update({
-      where: { id: rescheduleToken.id },
-      data: { usedAt: new Date() },
-    });
+    // Token already marked as used above (atomic operation)
 
     // Update job scheduledAt
     await prisma.job.update({

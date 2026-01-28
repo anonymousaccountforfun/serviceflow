@@ -14,8 +14,26 @@ import stripeService from '../services/stripe';
 import { logger } from '../lib/logger';
 import { sms } from '../services/sms';
 import { updateAttributionStage } from '../services/attribution';
+import { logWebhook, markWebhookProcessed, markWebhookIgnored } from '../services/webhooks';
 
 const router = Router();
+
+/**
+ * Check if a Stripe webhook event has already been processed (idempotency)
+ * Returns the existing webhook log if found, null otherwise
+ */
+async function checkStripeIdempotency(eventId: string): Promise<{ isDuplicate: boolean; logId?: string }> {
+  const existing = await prisma.webhookLog.findFirst({
+    where: { provider: 'stripe', externalId: eventId },
+    select: { id: true, status: true },
+  });
+
+  if (existing) {
+    return { isDuplicate: true, logId: existing.id };
+  }
+
+  return { isDuplicate: false };
+}
 
 /**
  * POST /webhooks/stripe
@@ -39,6 +57,21 @@ router.post('/', async (req: Request, res: Response) => {
   }
 
   logger.info('Received Stripe webhook', { type: event.type, id: event.id });
+
+  // Check for duplicate event (idempotency)
+  const { isDuplicate, logId: existingLogId } = await checkStripeIdempotency(event.id);
+  if (isDuplicate) {
+    logger.info('Duplicate Stripe webhook, already processed', { eventId: event.id });
+    return res.json({ received: true, duplicate: true });
+  }
+
+  // Log the webhook for audit trail
+  const webhookLogId = await logWebhook({
+    provider: 'stripe',
+    eventType: event.type,
+    externalId: event.id,
+    payload: event,
+  });
 
   try {
     switch (event.type) {
@@ -64,10 +97,15 @@ router.post('/', async (req: Request, res: Response) => {
 
       default:
         logger.info('Unhandled Stripe event type', { type: event.type });
+        await markWebhookIgnored(webhookLogId);
+        return res.json({ received: true });
     }
 
+    await markWebhookProcessed(webhookLogId);
     return res.json({ received: true });
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    await markWebhookProcessed(webhookLogId, errorMessage);
     logger.error('Failed to process Stripe webhook', { error, eventType: event.type });
     return res.status(500).json({ error: 'Webhook handler failed' });
   }
@@ -311,7 +349,7 @@ async function handlePaymentSucceeded(paymentIntent: any) {
 
 /**
  * Handle payment_intent.payment_failed
- * Create Payment record with failed status for debugging
+ * Create Payment record with failed status, update invoice status, and notify customer
  */
 async function handlePaymentFailed(paymentIntent: any) {
   const { invoiceId } = paymentIntent.metadata || {};
@@ -340,10 +378,13 @@ async function handlePaymentFailed(paymentIntent: any) {
     return;
   }
 
-  // Fetch invoice to get organizationId and customerId
+  // Fetch invoice with customer and organization details
   const invoice = await prisma.invoice.findUnique({
     where: { id: invoiceId },
-    select: { organizationId: true, customerId: true },
+    include: {
+      customer: true,
+      organization: true,
+    },
   });
 
   if (!invoice) {
@@ -375,6 +416,37 @@ async function handlePaymentFailed(paymentIntent: any) {
     paymentIntentId: paymentIntent.id,
     error: errorMessage,
   });
+
+  // Send payment failure notification SMS
+  if (invoice.customer?.phone) {
+    const customerName = [invoice.customer.firstName, invoice.customer.lastName]
+      .filter(Boolean)
+      .join(' ') || 'Customer';
+    const businessName = invoice.organization?.name || 'Our business';
+    const amount = (paymentIntent.amount / 100).toFixed(2);
+    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const paymentLink = `${appUrl}/pay/${invoice.id}`;
+
+    try {
+      await sms.sendTemplated({
+        organizationId: invoice.organizationId,
+        customerId: invoice.customerId,
+        to: invoice.customer.phone,
+        templateType: 'payment_failed',
+        variables: {
+          customerName,
+          amount,
+          businessName,
+          paymentLink,
+          errorMessage: errorMessage.substring(0, 100), // Truncate long errors
+        },
+      });
+      logger.info('Payment failure SMS sent', { invoiceId, to: invoice.customer.phone });
+    } catch (smsError) {
+      // Log error but don't fail - payment failure is already recorded
+      logger.error('Failed to send payment failure SMS', { invoiceId, error: smsError });
+    }
+  }
 }
 
 /**
