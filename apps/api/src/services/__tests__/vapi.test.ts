@@ -3,7 +3,7 @@
  * Tests for AI Voice V1 features
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+// Uses global jest types (not @jest/globals) for mock compatibility
 import { mockPrisma } from '../../tests/mocks/database';
 import {
   createTestOrganization,
@@ -15,7 +15,7 @@ import {
 // Mock the SMS service
 jest.mock('../sms', () => ({
   sms: {
-    send: jest.fn().mockResolvedValue({ success: true, messageId: 'test-msg-id' }),
+    send: jest.fn(),
   },
 }));
 
@@ -26,6 +26,7 @@ import { sms } from '../sms';
 describe('VapiService', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (sms.send as jest.Mock).mockResolvedValue({ success: true, messageId: 'test-msg-id' });
   });
 
   describe('buildSystemPrompt', () => {

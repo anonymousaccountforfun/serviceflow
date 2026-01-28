@@ -3,7 +3,7 @@
  * Tests for GET /api/analytics/ai-roi endpoint
  */
 
-import { jest, describe, it, expect, beforeEach } from '@jest/globals';
+// Uses global jest types (not @jest/globals) for mock compatibility
 import request from 'supertest';
 import express from 'express';
 import analyticsRouter from '../analytics';
