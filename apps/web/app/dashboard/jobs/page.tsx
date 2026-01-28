@@ -22,7 +22,7 @@ import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 import type { Job, Customer, CreateJobInput, JobType, JobPriority } from '../../../lib/types';
 import { rules, validateForm, hasErrors, type ValidationErrors } from '../../../lib/validation';
-import { invalidateOnJobCreate } from '../../../lib/query-invalidation';
+import { invalidateOnJobCreate, invalidateEntityOnError, StaleTime } from '../../../lib/query-invalidation';
 import { FormField, TextInput, TextArea } from '../../../components/ui/FormField';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -77,6 +77,7 @@ function CreateJobModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [type, setType] = useState<JobType>('repair');
@@ -94,6 +95,7 @@ function CreateJobModal({
     queryKey: ['customers', 'search', customerSearch],
     queryFn: () => api.getCustomers({ search: customerSearch }),
     enabled: customerSearch.length > 0,
+    staleTime: StaleTime.SHORT, // Search results should be fresh
   });
 
   const customers = customersData?.data || [];
@@ -108,6 +110,8 @@ function CreateJobModal({
     },
     onError: (err: Error) => {
       toast.error(err.message || 'Failed to create job');
+      // Invalidate job queries on error to ensure fresh data on retry
+      invalidateEntityOnError(queryClient, 'job');
     },
   });
 
@@ -538,8 +542,7 @@ export default function JobsPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['jobs', statusFilter, page],
     queryFn: () => api.getJobs({ status: statusFilter || undefined, page }),
-    // Cache for 30 seconds - job list doesn't change frequently
-    staleTime: 30 * 1000,
+    staleTime: StaleTime.STANDARD,
   });
 
   const jobs = data?.data || [];

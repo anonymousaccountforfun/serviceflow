@@ -36,6 +36,53 @@ async function checkStripeIdempotency(eventId: string): Promise<{ isDuplicate: b
 }
 
 /**
+ * Event ordering validation for subscription events
+ *
+ * Stripe events can arrive out of order. This function checks if we should
+ * process an event based on its timestamp compared to the last processed event.
+ *
+ * Returns true if the event should be processed, false if it's stale.
+ */
+async function shouldProcessSubscriptionEvent(
+  subscriptionId: string,
+  eventTimestamp: number
+): Promise<boolean> {
+  // Find the most recent webhook for this subscription
+  const latestWebhook = await prisma.webhookLog.findFirst({
+    where: {
+      provider: 'stripe',
+      eventType: { startsWith: 'customer.subscription' },
+      status: 'processed',
+    },
+    orderBy: { createdAt: 'desc' },
+    select: { payload: true, createdAt: true },
+  });
+
+  if (!latestWebhook) {
+    return true; // No previous events, process this one
+  }
+
+  // Check if the event in the payload matches this subscription
+  const payload = latestWebhook.payload as any;
+  if (payload?.data?.object?.id !== subscriptionId) {
+    return true; // Different subscription, process this one
+  }
+
+  // Compare timestamps - Stripe event.created is in seconds
+  const latestTimestamp = payload?.created || 0;
+  if (eventTimestamp < latestTimestamp) {
+    logger.info('Ignoring out-of-order subscription event', {
+      subscriptionId,
+      eventTimestamp,
+      latestTimestamp,
+    });
+    return false;
+  }
+
+  return true;
+}
+
+/**
  * POST /webhooks/stripe
  * Handle Stripe webhook events
  */
@@ -79,13 +126,29 @@ router.post('/', async (req: Request, res: Response) => {
         await handleCheckoutCompleted(event.data.object);
         break;
 
-      case 'customer.subscription.updated':
-        await handleSubscriptionUpdated(event.data.object);
+      case 'customer.subscription.updated': {
+        // Check event ordering to prevent out-of-order updates
+        const subscription = event.data.object as any;
+        if (await shouldProcessSubscriptionEvent(subscription.id, event.created)) {
+          await handleSubscriptionUpdated(subscription);
+        } else {
+          await markWebhookIgnored(webhookLogId);
+          return res.json({ received: true, skipped: 'out_of_order' });
+        }
         break;
+      }
 
-      case 'customer.subscription.deleted':
-        await handleSubscriptionDeleted(event.data.object);
+      case 'customer.subscription.deleted': {
+        // Check event ordering to prevent out-of-order updates
+        const subscription = event.data.object as any;
+        if (await shouldProcessSubscriptionEvent(subscription.id, event.created)) {
+          await handleSubscriptionDeleted(subscription);
+        } else {
+          await markWebhookIgnored(webhookLogId);
+          return res.json({ received: true, skipped: 'out_of_order' });
+        }
         break;
+      }
 
       case 'payment_intent.succeeded':
         await handlePaymentSucceeded(event.data.object);

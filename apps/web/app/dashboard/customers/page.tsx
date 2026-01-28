@@ -19,7 +19,7 @@ import Link from 'next/link';
 import { api } from '../../../lib/api';
 import type { Customer, CreateCustomerInput, CustomerSource } from '../../../lib/types';
 import { rules, validateForm, hasErrors, formatPhoneNumber, type ValidationErrors } from '../../../lib/validation';
-import { invalidateOnCustomerCreate } from '../../../lib/query-invalidation';
+import { invalidateOnCustomerCreate, invalidateEntityOnError, StaleTime } from '../../../lib/query-invalidation';
 import { FormField, TextInput, FormErrorBanner } from '../../../components/ui/FormField';
 import { Skeleton, SkeletonAvatar } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -51,6 +51,7 @@ function CreateCustomerModal({
   onClose: () => void;
   onSuccess: () => void;
 }) {
+  const queryClient = useQueryClient();
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [phone, setPhone] = useState('');
@@ -75,6 +76,8 @@ function CreateCustomerModal({
     },
     onError: (err: Error) => {
       setError(err.message || 'Failed to create customer');
+      // Invalidate customer queries on error to ensure fresh data on retry
+      invalidateEntityOnError(queryClient, 'customer');
     },
   });
 
@@ -439,8 +442,7 @@ export default function CustomersPage() {
   const { data, isLoading } = useQuery({
     queryKey: ['customers', search, page],
     queryFn: () => api.getCustomers({ search: search || undefined, page }),
-    // Cache for 30 seconds - customer list doesn't change frequently
-    staleTime: 30 * 1000,
+    staleTime: StaleTime.STANDARD,
   });
 
   const customers: Customer[] = data?.data || [];

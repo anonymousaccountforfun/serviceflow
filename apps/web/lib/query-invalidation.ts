@@ -12,6 +12,25 @@
 import { QueryClient } from '@tanstack/react-query';
 
 /**
+ * Standardized staleTime values for consistent caching behavior
+ *
+ * Use these constants in useQuery options to ensure consistent cache behavior:
+ *   useQuery({ queryKey: [...], queryFn: ..., staleTime: StaleTime.STANDARD })
+ */
+export const StaleTime = {
+  /** Default for most data - 30 seconds */
+  STANDARD: 30 * 1000,
+  /** For frequently changing data (inbox, notifications) - 10 seconds */
+  SHORT: 10 * 1000,
+  /** For rarely changing data (settings, user profile) - 5 minutes */
+  LONG: 5 * 60 * 1000,
+  /** For static reference data (dropdown options) - 10 minutes */
+  STATIC: 10 * 60 * 1000,
+  /** Always fresh - 0 (no caching) */
+  NONE: 0,
+} as const;
+
+/**
  * Query keys used throughout the application
  */
 export const QueryKeys = {
@@ -251,8 +270,82 @@ export function invalidateOnInvoiceChange(
 
 /**
  * Invalidate all queries after an error to ensure fresh data
+ * This is a recovery mechanism for when mutations fail and data may be stale
  */
 export function invalidateOnError(queryClient: QueryClient): void {
   // Invalidate all queries to ensure we recover from stale state
   queryClient.invalidateQueries();
+}
+
+/**
+ * Invalidate specific entity queries after an error
+ * More targeted than invalidateOnError - use when you know which entity failed
+ */
+export function invalidateEntityOnError(
+  queryClient: QueryClient,
+  entityType: 'job' | 'customer' | 'appointment' | 'estimate' | 'invoice',
+  entityId?: string
+): void {
+  switch (entityType) {
+    case 'job':
+      queryClient.invalidateQueries({ queryKey: QueryKeys.jobs });
+      if (entityId) queryClient.invalidateQueries({ queryKey: QueryKeys.job(entityId) });
+      break;
+    case 'customer':
+      queryClient.invalidateQueries({ queryKey: QueryKeys.customers });
+      if (entityId) queryClient.invalidateQueries({ queryKey: QueryKeys.customer(entityId) });
+      // Also invalidate search caches
+      queryClient.invalidateQueries({
+        predicate: (query) =>
+          Array.isArray(query.queryKey) &&
+          query.queryKey[0] === 'customers' &&
+          query.queryKey[1] === 'search',
+      });
+      break;
+    case 'appointment':
+      queryClient.invalidateQueries({ queryKey: QueryKeys.appointments });
+      queryClient.invalidateQueries({ queryKey: QueryKeys.calendar });
+      if (entityId) queryClient.invalidateQueries({ queryKey: QueryKeys.appointment(entityId) });
+      break;
+    case 'estimate':
+      queryClient.invalidateQueries({ queryKey: QueryKeys.estimates });
+      if (entityId) queryClient.invalidateQueries({ queryKey: QueryKeys.estimate(entityId) });
+      break;
+    case 'invoice':
+      queryClient.invalidateQueries({ queryKey: QueryKeys.invoices });
+      if (entityId) queryClient.invalidateQueries({ queryKey: QueryKeys.invoice(entityId) });
+      break;
+  }
+}
+
+/**
+ * Create mutation options with built-in error recovery
+ *
+ * Usage:
+ *   const mutation = useMutation({
+ *     mutationFn: api.createJob,
+ *     ...withErrorRecovery(queryClient, 'job', {
+ *       onSuccess: () => { ... },
+ *       onError: (err) => { toast.error(err.message); }
+ *     })
+ *   });
+ */
+export function withErrorRecovery<TData, TError, TVariables, TContext>(
+  queryClient: QueryClient,
+  entityType: 'job' | 'customer' | 'appointment' | 'estimate' | 'invoice',
+  options: {
+    onSuccess?: (data: TData, variables: TVariables, context: TContext) => void;
+    onError?: (error: TError, variables: TVariables, context: TContext | undefined) => void;
+    entityId?: string;
+  } = {}
+) {
+  return {
+    onSuccess: options.onSuccess,
+    onError: (error: TError, variables: TVariables, context: TContext | undefined) => {
+      // Always invalidate on error to recover from potential stale state
+      invalidateEntityOnError(queryClient, entityType, options.entityId);
+      // Call user's onError handler if provided
+      options.onError?.(error, variables, context);
+    },
+  };
 }
