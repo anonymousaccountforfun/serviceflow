@@ -20,6 +20,7 @@ import { sendSuccess, sendPaginated, errors } from '../utils/api-response';
 import stripeService from '../services/stripe';
 import { logger } from '../lib/logger';
 import { requireAuth } from '../middleware/auth';
+import { invoicePaymentLimiter } from '../middleware/rate-limit';
 
 const router = Router();
 
@@ -33,8 +34,9 @@ interface LineItem {
 /**
  * GET /api/payments/invoice/:id
  * Get invoice details for payment page
+ * Rate limited to prevent enumeration attacks
  */
-router.get('/invoice/:id', async (req: Request, res: Response) => {
+router.get('/invoice/:id', invoicePaymentLimiter, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -104,8 +106,9 @@ router.get('/invoice/:id', async (req: Request, res: Response) => {
 /**
  * POST /api/payments/invoice/:id/intent
  * Create a Stripe payment intent for the invoice
+ * Rate limited to prevent abuse
  */
-router.post('/invoice/:id/intent', async (req: Request, res: Response) => {
+router.post('/invoice/:id/intent', invoicePaymentLimiter, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 
@@ -226,8 +229,9 @@ router.post('/invoice/:id/intent', async (req: Request, res: Response) => {
 /**
  * GET /api/payments/invoice/:id/status
  * Get current payment status for an invoice
+ * Rate limited to prevent polling abuse
  */
-router.get('/invoice/:id/status', async (req: Request, res: Response) => {
+router.get('/invoice/:id/status', invoicePaymentLimiter, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
 

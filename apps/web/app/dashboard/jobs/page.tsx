@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import { api } from '../../../lib/api';
 import type { Job, Customer, CreateJobInput, JobType, JobPriority } from '../../../lib/types';
 import { rules, validateForm, hasErrors, type ValidationErrors } from '../../../lib/validation';
+import { invalidateOnJobCreate } from '../../../lib/query-invalidation';
 import { FormField, TextInput, TextArea } from '../../../components/ui/FormField';
 import { Skeleton } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -545,7 +546,8 @@ export default function JobsPage() {
   const meta = data?.meta;
 
   const handleJobCreated = () => {
-    queryClient.invalidateQueries({ queryKey: ['jobs'] });
+    // Use centralized invalidation to ensure all related caches are updated
+    invalidateOnJobCreate(queryClient);
   };
 
   const statuses = [

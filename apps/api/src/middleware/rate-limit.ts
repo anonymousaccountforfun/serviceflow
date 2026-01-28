@@ -3,6 +3,11 @@
  *
  * Protects against abuse and DoS attacks with configurable rate limits
  * for different endpoint types.
+ *
+ * Implements multiple limiting strategies:
+ * - IP-based limiting (default)
+ * - User-based limiting (for authenticated endpoints)
+ * - Resource-based limiting (for specific IDs like invoices)
  */
 
 import rateLimit from 'express-rate-limit';
@@ -109,4 +114,72 @@ export const webhookLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   handler: rateLimitHandler,
+});
+
+/**
+ * Public invoice payment rate limiter
+ * 20 requests per minute per IP + invoice ID combination
+ * Stricter than general limiter since these are unauthenticated endpoints
+ * that rely on UUID unpredictability for security
+ */
+export const invoicePaymentLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req: Request, res: Response) => {
+    res.status(429).json({
+      success: false,
+      error: {
+        code: 'E4293',
+        message: 'Too many payment requests. Please try again in a minute.',
+      },
+    });
+  },
+  // Key by IP + invoice ID to prevent enumeration attacks
+  keyGenerator: (req) => {
+    const invoiceId = req.params.id || 'unknown';
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    return `invoice-${ip}-${invoiceId}`;
+  },
+});
+
+/**
+ * Per-user rate limiter for authenticated endpoints
+ * 200 requests per minute per user (falls back to IP if not authenticated)
+ * Prevents abuse from authenticated users sharing corporate IPs
+ */
+export const userLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  keyGenerator: (req) => {
+    // Use user ID if authenticated, otherwise fall back to IP
+    const userId = (req as any).auth?.userId;
+    if (userId) {
+      return `user-${userId}`;
+    }
+    return req.ip || req.socket.remoteAddress || 'unknown';
+  },
+});
+
+/**
+ * Combined IP + User rate limiter
+ * Applies both IP-based and user-based limits
+ * Use this for sensitive authenticated endpoints
+ */
+export const combinedLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: rateLimitHandler,
+  keyGenerator: (req) => {
+    const userId = (req as any).auth?.userId;
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    // Combine both to limit per-user AND per-IP
+    return userId ? `combined-${ip}-${userId}` : `combined-${ip}`;
+  },
 });

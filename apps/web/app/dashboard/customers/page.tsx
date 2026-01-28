@@ -19,6 +19,7 @@ import Link from 'next/link';
 import { api } from '../../../lib/api';
 import type { Customer, CreateCustomerInput, CustomerSource } from '../../../lib/types';
 import { rules, validateForm, hasErrors, formatPhoneNumber, type ValidationErrors } from '../../../lib/validation';
+import { invalidateOnCustomerCreate } from '../../../lib/query-invalidation';
 import { FormField, TextInput, FormErrorBanner } from '../../../components/ui/FormField';
 import { Skeleton, SkeletonAvatar } from '@/components/ui/skeleton';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -446,7 +447,8 @@ export default function CustomersPage() {
   const meta = data?.meta;
 
   const handleCustomerCreated = () => {
-    queryClient.invalidateQueries({ queryKey: ['customers'] });
+    // Use centralized invalidation to update all related caches including search dropdowns
+    invalidateOnCustomerCreate(queryClient);
   };
 
   return (

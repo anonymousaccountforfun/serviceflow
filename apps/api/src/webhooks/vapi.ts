@@ -281,22 +281,38 @@ async function handleStatusUpdate(payload: VapiWebhookPayload): Promise<void> {
 
 /**
  * Handle real-time transcript updates
+ * Merges new transcript segments with existing ones instead of overwriting
  */
 async function handleTranscript(payload: VapiWebhookPayload): Promise<void> {
   const { call, transcript } = payload.message;
   if (!call || !transcript) return;
 
-  // Find our call record
+  // Find our call record with current transcript
   const callRecord = await prisma.call.findFirst({
     where: { vapiCallId: call.id },
+    select: { id: true, transcript: true },
   });
 
   if (!callRecord) return;
 
-  // Update transcript (this will be called multiple times, always overwriting)
+  // Merge transcripts: if the new transcript is longer or different, use it
+  // This handles both incremental updates and full replacements
+  let mergedTranscript = transcript;
+
+  if (callRecord.transcript) {
+    // If new transcript is a continuation (starts with existing content), use new
+    // If new transcript is shorter but different, append as new segment
+    if (!transcript.startsWith(callRecord.transcript) &&
+        transcript.length < callRecord.transcript.length) {
+      // Append as a new segment with timestamp separator
+      mergedTranscript = `${callRecord.transcript}\n\n[continued]\n${transcript}`;
+    }
+    // Otherwise, the new transcript is longer/complete, use it directly
+  }
+
   await prisma.call.update({
     where: { id: callRecord.id },
-    data: { transcript },
+    data: { transcript: mergedTranscript },
   });
 }
 
@@ -321,7 +337,31 @@ async function handleFunctionCall(
 }
 
 /**
+ * Process tool calls with concurrency limit to prevent database overload
+ * Processes up to MAX_CONCURRENT_TOOLS at a time
+ */
+const MAX_CONCURRENT_TOOL_CALLS = 3;
+
+async function processToolCallsWithThrottle<T>(
+  items: T[],
+  processor: (item: T) => Promise<unknown>,
+  maxConcurrent: number = MAX_CONCURRENT_TOOL_CALLS
+): Promise<unknown[]> {
+  const results: unknown[] = [];
+
+  // Process in batches of maxConcurrent
+  for (let i = 0; i < items.length; i += maxConcurrent) {
+    const batch = items.slice(i, i + maxConcurrent);
+    const batchResults = await Promise.all(batch.map(processor));
+    results.push(...batchResults);
+  }
+
+  return results;
+}
+
+/**
  * Handle new tool calls format
+ * Uses throttled processing to prevent overwhelming the database
  */
 async function handleToolCalls(
   payload: VapiWebhookPayload
@@ -338,18 +378,34 @@ async function handleToolCalls(
     customerId: metadata.customerId,
   };
 
-  const results = await Promise.all(
-    toolCalls.map(async (toolCall) => {
-      const args = JSON.parse(toolCall.function.arguments);
-      const result = await vapi.handleToolCall(toolCall.function.name, args, context);
-      return {
-        toolCallId: toolCall.id,
-        result,
-      };
-    })
+  // Throttle tool calls to prevent database overload
+  // Process MAX_CONCURRENT_TOOL_CALLS at a time instead of all in parallel
+  const results = await processToolCallsWithThrottle(
+    toolCalls,
+    async (toolCall) => {
+      try {
+        const args = JSON.parse(toolCall.function.arguments);
+        const result = await vapi.handleToolCall(toolCall.function.name, args, context);
+        return {
+          toolCallId: toolCall.id,
+          result,
+        };
+      } catch (error) {
+        logger.error('Tool call failed', {
+          toolCallId: toolCall.id,
+          functionName: toolCall.function.name,
+          error,
+        });
+        return {
+          toolCallId: toolCall.id,
+          result: { error: 'Tool call failed' },
+        };
+      }
+    },
+    MAX_CONCURRENT_TOOL_CALLS
   );
 
-  return results;
+  return results as Array<{ toolCallId: string; result: unknown }>;
 }
 
 /**
