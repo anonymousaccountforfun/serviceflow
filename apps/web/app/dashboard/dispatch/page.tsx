@@ -29,6 +29,7 @@ import {
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
+import { StaleTime } from '../../../lib/query-invalidation';
 
 // Status colors for appointments
 const statusColors: Record<string, { bg: string; border: string; text: string }> = {
@@ -380,6 +381,7 @@ export default function DispatchPage() {
   const { data: teamData, isLoading: teamLoading } = useQuery({
     queryKey: ['team'],
     queryFn: () => api.getTeam(),
+    staleTime: StaleTime.LONG, // Team data rarely changes
   });
 
   // Fetch appointments for the day
@@ -390,6 +392,7 @@ export default function DispatchPage() {
         startDate: startOfDay(currentDate).toISOString(),
         endDate: endOfDay(currentDate).toISOString(),
       }),
+    staleTime: StaleTime.SHORT, // Dispatch data should be relatively fresh
   });
 
   // Reassign appointment mutation
