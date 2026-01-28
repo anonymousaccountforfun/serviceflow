@@ -18,6 +18,7 @@ import { format, addDays, startOfWeek, addWeeks, subWeeks } from 'date-fns';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { api } from '../../../lib/api';
+import { StaleTime } from '../../../lib/query-invalidation';
 
 type ViewMode = 'day' | 'week';
 
@@ -52,6 +53,7 @@ function CreateAppointmentModal({
     queryKey: ['jobs', 'search', jobSearch],
     queryFn: () => api.getJobs({ status: 'scheduled', limit: 10 }),
     enabled: true,
+    staleTime: StaleTime.SHORT,
   });
 
   const jobs = jobsData?.data || [];
@@ -309,6 +311,7 @@ function DayView({ date, onAddClick }: { date: Date; onAddClick: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ['calendar', 'day', dateStr],
     queryFn: () => api.getCalendarDay(dateStr),
+    staleTime: StaleTime.STANDARD,
   });
 
   const appointments = data?.data || [];
@@ -374,6 +377,7 @@ function WeekView({ startDate, onAddClick }: { startDate: Date; onAddClick: () =
   const { data, isLoading } = useQuery({
     queryKey: ['calendar', 'week', dateStr],
     queryFn: () => api.getCalendarWeek(dateStr),
+    staleTime: StaleTime.STANDARD,
   });
 
   const byDay: Record<string, any[]> = data?.data || {};

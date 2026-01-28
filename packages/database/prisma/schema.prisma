@@ -411,6 +411,8 @@ model Job {
   @@index([customerId])
   @@index([organizationId, status])
   @@index([scheduledAt])
+  @@index([createdAt])
+  @@index([updatedAt])
 }
 
 enum JobType {
@@ -676,6 +678,8 @@ model Appointment {
   @@index([jobId])
   @@index([scheduledAt])
   @@index([organizationId, scheduledAt])
+  @@index([organizationId, assignedToId, scheduledAt])
+  @@index([assignedToId, scheduledAt])
 }
 
 enum AppointmentStatus {

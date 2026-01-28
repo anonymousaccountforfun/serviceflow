@@ -339,30 +339,41 @@ router.get('/technicians', async (req, res) => {
       },
     });
 
-    // Get appointments for each technician
-    const technicianSchedules = await Promise.all(
-      technicians.map(async (tech: { id: string; firstName: string | null; lastName: string | null; phone: string | null }) => {
-        const appointments = await prisma.appointment.findMany({
-          where: {
-            organizationId: orgId,
-            assignedToId: tech.id,
-            scheduledAt: { gte: dayStart, lte: dayEnd },
-            status: { notIn: ['canceled'] },
-          },
-          include: {
-            job: { select: { id: true, title: true, type: true } },
-            customer: { select: { firstName: true, lastName: true, address: true } },
-          },
-          orderBy: { scheduledAt: 'asc' },
-        });
+    // Get all appointments for the day in a single query (avoids N+1)
+    const technicianIds = technicians.map((t) => t.id);
+    const allAppointments = await prisma.appointment.findMany({
+      where: {
+        organizationId: orgId,
+        assignedToId: { in: technicianIds },
+        scheduledAt: { gte: dayStart, lte: dayEnd },
+        status: { notIn: ['canceled'] },
+      },
+      include: {
+        job: { select: { id: true, title: true, type: true } },
+        customer: { select: { firstName: true, lastName: true, address: true } },
+      },
+      orderBy: { scheduledAt: 'asc' },
+    });
 
-        return {
-          technician: tech,
-          appointments,
-          appointmentCount: appointments.length,
-        };
-      })
-    );
+    // Group appointments by technician in memory
+    const appointmentsByTech = new Map<string, typeof allAppointments>();
+    for (const apt of allAppointments) {
+      if (apt.assignedToId) {
+        const existing = appointmentsByTech.get(apt.assignedToId) || [];
+        existing.push(apt);
+        appointmentsByTech.set(apt.assignedToId, existing);
+      }
+    }
+
+    // Build response with grouped appointments
+    const technicianSchedules = technicians.map((tech) => {
+      const appointments = appointmentsByTech.get(tech.id) || [];
+      return {
+        technician: tech,
+        appointments,
+        appointmentCount: appointments.length,
+      };
+    });
 
     res.json({
       success: true,

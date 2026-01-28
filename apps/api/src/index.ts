@@ -16,6 +16,7 @@ initEnv();
 // Middleware
 import { requireAuth, optionalAuth } from './middleware/auth';
 import { generalLimiter, strictLimiter, webhookLimiter } from './middleware/rate-limit';
+import { autoCacheByRoute } from './middleware/cache';
 import { requestLogger, logger } from './lib/logger';
 
 // Routes
@@ -96,6 +97,9 @@ app.use('/health', healthRoutes);
 
 // Public review link (short URL for SMS) - strict rate limiting, no auth
 app.use('/r', strictLimiter, reviewRoutes);
+
+// Apply cache headers to all API routes
+app.use('/api', autoCacheByRoute());
 
 // Protected API routes - require authentication with general rate limiting
 app.use('/api/customers', generalLimiter, requireAuth, customerRoutes);
