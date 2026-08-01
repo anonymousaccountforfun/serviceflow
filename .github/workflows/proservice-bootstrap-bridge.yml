@@ -1,0 +1,74 @@
+name: ProService bootstrap bridge
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/proservice-bootstrap-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diagnose credentials and tailnet reachability
+        shell: bash
+        env:
+          TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+          TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+          TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          TAILSCALE_OAUTH_SECRET: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+        run: |
+          set -uo pipefail
+          mkdir -p probe-output
+          bool() { if [ -n "${1:-}" ]; then echo true; else echo false; fi; }
+          {
+            echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner=${RUNNER_NAME:-unknown}"
+            echo "os=${RUNNER_OS:-unknown}"
+            echo "arch=${RUNNER_ARCH:-unknown}"
+            echo "HAS_TAILSCALE_AUTHKEY=$(bool "$TAILSCALE_AUTHKEY")"
+            echo "HAS_TS_AUTHKEY=$(bool "$TS_AUTHKEY")"
+            echo "HAS_TS_OAUTH_CLIENT_ID=$(bool "$TS_OAUTH_CLIENT_ID")"
+            echo "HAS_TS_OAUTH_SECRET=$(bool "$TS_OAUTH_SECRET")"
+            echo "HAS_TAILSCALE_OAUTH_CLIENT_ID=$(bool "$TAILSCALE_OAUTH_CLIENT_ID")"
+            echo "HAS_TAILSCALE_OAUTH_SECRET=$(bool "$TAILSCALE_OAUTH_SECRET")"
+            echo "HAS_OPENAI_API_KEY=$(bool "$OPENAI_API_KEY")"
+            echo "HAS_CODEX_API_KEY=$(bool "$CODEX_API_KEY")"
+          } | tee probe-output/credential-presence.txt
+
+          AUTHKEY="${TAILSCALE_AUTHKEY:-${TS_AUTHKEY:-}}"
+          if [ -n "$AUTHKEY" ]; then
+            curl -fsSL https://tailscale.com/install.sh | sh
+            sudo tailscale up --authkey="$AUTHKEY" --hostname="proservice-gh-$(date +%s)" --accept-dns=true
+            {
+              echo '--- tailscale status ---'
+              tailscale status || true
+              echo '--- host probes ---'
+              for host in mac-studio mini-01 mini-02; do
+                echo "### $host"
+                tailscale ping --timeout=5s "$host" || true
+                getent hosts "$host" || true
+                nc -vz -w 5 "$host" 22 || true
+              done
+            } 2>&1 | tee probe-output/tailnet.txt
+          else
+            echo 'No reusable Tailscale auth key is configured in repository secrets.' | tee probe-output/tailnet.txt
+          fi
+
+      - name: Upload diagnostics
+        uses: actions/upload-artifact@v4
+        with:
+          name: proservice-bootstrap-bridge
+          path: probe-output/
+          retention-days: 1
