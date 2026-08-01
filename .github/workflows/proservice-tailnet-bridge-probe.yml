@@ -1,0 +1,75 @@
+name: ProService tailnet bridge probe
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+      TS_OAUTH_CLIENT_ID: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+      TS_OAUTH_SECRET: ${{ secrets.TS_OAUTH_SECRET }}
+      TAILSCALE_OAUTH_CLIENT_ID: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+      TAILSCALE_OAUTH_SECRET: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+    steps:
+      - name: Report bridge credential availability
+        run: |
+          set -euo pipefail
+          for n in TAILSCALE_AUTHKEY TS_AUTHKEY TS_OAUTH_CLIENT_ID TS_OAUTH_SECRET TAILSCALE_OAUTH_CLIENT_ID TAILSCALE_OAUTH_SECRET; do
+            if [ -n "${!n:-}" ]; then
+              echo "$n=set"
+            else
+              echo "$n=missing"
+            fi
+          done
+
+      - name: Install Tailscale when an auth key is configured
+        if: env.TAILSCALE_AUTHKEY != '' || env.TS_AUTHKEY != ''
+        run: |
+          set -euo pipefail
+          curl -fsSL https://tailscale.com/install.sh | sh
+          sudo systemctl start tailscaled
+
+      - name: Join tailnet and probe Macs
+        if: env.TAILSCALE_AUTHKEY != '' || env.TS_AUTHKEY != ''
+        run: |
+          set -euo pipefail
+          KEY="${TAILSCALE_AUTHKEY:-${TS_AUTHKEY:-}}"
+          sudo tailscale up \
+            --authkey="$KEY" \
+            --hostname="gh-proservice-${GITHUB_RUN_ID}" \
+            --accept-dns=true \
+            --accept-routes=false
+
+          echo '--- tailnet peers ---'
+          tailscale status || true
+
+          echo '--- host reachability ---'
+          for h in mini-01 mini-02 studio mac-studio; do
+            echo "## $h"
+            tailscale ping -c 2 "$h" || true
+          done
+
+          echo '--- Tailscale SSH capability probes ---'
+          tailscale ssh satoshiclawdomoto@mini-01 'printf "host="; hostname; sw_vers 2>/dev/null || true; printf "codex="; command -v codex || true; codex login status 2>/dev/null || true; printf "project_paths\n"; find "$HOME/work" "$HOME/Downloads" "$HOME/Desktop" -maxdepth 3 -iname "*ProService*Research*OS*" -print 2>/dev/null | head -50' || true
+          tailscale ssh brianmacmini2@mini-02 'printf "host="; hostname; sw_vers 2>/dev/null || true; printf "codex="; command -v codex || true; codex login status 2>/dev/null || true; printf "project_paths\n"; find "$HOME/work" "$HOME/Downloads" "$HOME/Desktop" -maxdepth 3 -iname "*ProService*Research*OS*" -print 2>/dev/null | head -50' || true
+          tailscale ssh brianstudio@studio 'printf "host="; hostname; sw_vers 2>/dev/null || true; printf "codex="; command -v codex || true; codex login status 2>/dev/null || true; printf "project_paths\n"; find "$HOME/work" "$HOME/Downloads" "$HOME/Desktop" -maxdepth 3 -iname "*ProService*Research*OS*" -print 2>/dev/null | head -50' || true
+          tailscale ssh brianstudio@mac-studio 'printf "host="; hostname; sw_vers 2>/dev/null || true; printf "codex="; command -v codex || true; codex login status 2>/dev/null || true; printf "project_paths\n"; find "$HOME/work" "$HOME/Downloads" "$HOME/Desktop" -maxdepth 3 -iname "*ProService*Research*OS*" -print 2>/dev/null | head -50' || true
+
+      - name: Record absent autonomous bridge
+        if: env.TAILSCALE_AUTHKEY == '' && env.TS_AUTHKEY == ''
+        run: |
+          echo 'No repository Tailscale auth key is configured. OAuth credential availability is reported above for a follow-up OAuth probe.'
