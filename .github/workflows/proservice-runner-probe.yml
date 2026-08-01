@@ -18,7 +18,7 @@ jobs:
       - name: Capture non-secret runner diagnostics
         shell: bash
         run: |
-          set -euo pipefail
+          set -u
           mkdir -p probe-output
           {
             echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -29,25 +29,24 @@ jobs:
             echo "whoami=$(whoami)"
             echo "pwd=$(pwd)"
             echo "uname=$(uname -a)"
-            echo "codex=$(command -v codex || true)"
-            echo "python3=$(command -v python3 || true)"
-            echo "tailscale=$(command -v tailscale || true)"
+            for tool in codex python3 tailscale ssh git; do
+              if command -v "$tool" >/dev/null 2>&1; then
+                echo "$tool=$(command -v "$tool")"
+              else
+                echo "$tool=missing"
+              fi
+            done
             if command -v tailscale >/dev/null 2>&1; then
-              tailscale status --json 2>/dev/null | python3 - <<'PY'
-import json,sys
-try:
-    d=json.load(sys.stdin); s=d.get('Self',{})
-    print('tailscale_hostname='+str(s.get('HostName')))
-    print('tailscale_dns='+str(s.get('DNSName')))
-    print('tailscale_ips='+str(s.get('TailscaleIPs')))
-    print('tailscale_online='+str(s.get('Online')))
-except Exception as e:
-    print('tailscale_status_error='+repr(e))
-PY
+              echo "tailscale_status_begin"
+              tailscale status 2>&1 || true
+              echo "tailscale_status_end"
             fi
-            echo "codex_login_status_begin"
-            codex login status 2>&1 || true
-            echo "codex_login_status_end"
+            if command -v codex >/dev/null 2>&1; then
+              echo "codex_version=$(codex --version 2>&1 || true)"
+              echo "codex_login_status_begin"
+              codex login status 2>&1 || true
+              echo "codex_login_status_end"
+            fi
           } > probe-output/runner.txt
           cat probe-output/runner.txt
       - name: Upload diagnostics
