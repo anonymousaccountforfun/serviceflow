@@ -1,0 +1,57 @@
+name: Temporary ProService tailnet readiness
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+    steps:
+      - name: Report credential presence only
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${TAILSCALE_AUTHKEY:-}" ] && echo 'TAILSCALE_AUTHKEY=present' || echo 'TAILSCALE_AUTHKEY=absent'
+          [ -n "${TS_AUTHKEY:-}" ] && echo 'TS_AUTHKEY=present' || echo 'TS_AUTHKEY=absent'
+
+      - name: Install and join tailnet when configured
+        if: env.TAILSCALE_AUTHKEY != '' || env.TS_AUTHKEY != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://tailscale.com/install.sh | sh >/dev/null
+          sudo systemctl start tailscaled
+          key="${TAILSCALE_AUTHKEY:-${TS_AUTHKEY:-}}"
+          sudo tailscale up --authkey="$key" --hostname="proservice-readiness-${GITHUB_RUN_ID}" --accept-dns=true --accept-routes=false
+
+      - name: Report Mac reachability and Tailscale SSH readiness
+        if: env.TAILSCALE_AUTHKEY != '' || env.TS_AUTHKEY != ''
+        shell: bash
+        run: |
+          set -uo pipefail
+          probe() {
+            label="$1"; target="$2"
+            if tailscale ping --timeout=5s "$target" >/dev/null 2>&1; then
+              echo "${label}_reachable=true"
+            else
+              echo "${label}_reachable=false"
+              return
+            fi
+            if timeout 10 tailscale ssh "$target" 'printf ready' >/dev/null 2>&1; then
+              echo "${label}_ssh_ready=true"
+            else
+              echo "${label}_ssh_ready=false"
+            fi
+          }
+          probe mini_01 'satoshiclawdomoto@mini-01'
+          probe mini_02 'brianmacmini2@mini-02'
+          probe mac_studio 'brianstudio@studio'
