@@ -1,0 +1,41 @@
+name: ProService Mac Runner Probe
+
+on:
+  pull_request:
+    paths:
+      - '.proservice-runner-probe'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 5
+    steps:
+      - name: Report local readiness without exposing secrets
+        shell: bash
+        run: |
+          set -u
+          echo "HOSTNAME=$(hostname)"
+          echo "USER=$(whoami)"
+          echo "ARCH=$(uname -m)"
+          echo "OS=$(sw_vers -productVersion 2>/dev/null || true)"
+          echo "TAILSCALE_BIN=$(command -v tailscale || true)"
+          if command -v tailscale >/dev/null 2>&1; then
+            tailscale status --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); print("TAILSCALE_SELF=" + str(d.get("Self",{}).get("DNSName", ""))); print("TAILSCALE_PEERS=" + str(len(d.get("Peer",{}))))' || true
+          fi
+          echo "CODEX_BIN=$(command -v codex || true)"
+          if command -v codex >/dev/null 2>&1; then
+            codex --version || true
+            codex login status || true
+          fi
+          echo "PYTHON_BIN=$(command -v python3 || true)"
+          python3 --version 2>/dev/null || true
+          for p in \
+            "$HOME/Downloads/ProService_CEO_Research_OS_v0.2.0.zip" \
+            "$HOME/work/ProService_CEO_Research_OS" \
+            "$HOME/ProService_CEO_Research_OS_v0.2.0"; do
+            if [ -e "$p" ]; then echo "FOUND_PROJECT=$p"; fi
+          done
