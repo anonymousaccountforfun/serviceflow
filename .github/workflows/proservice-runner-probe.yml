@@ -1,0 +1,34 @@
+name: ProService Mac Runner Probe
+
+on:
+  push:
+    branches:
+      - proservice-runner-probe
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: self-hosted
+    timeout-minutes: 5
+    steps:
+      - name: Report safe runner capabilities
+        shell: bash
+        run: |
+          echo "PROSERVICE_RUNNER_PROBE_BEGIN"
+          echo "os=$(uname -s)"
+          echo "arch=$(uname -m)"
+          if command -v tailscale >/dev/null 2>&1; then echo "tailscale_present=true"; else echo "tailscale_present=false"; fi
+          if command -v codex >/dev/null 2>&1; then
+            echo "codex_present=true"
+            if codex login status >/tmp/proservice-codex-status.txt 2>&1; then
+              echo "codex_authenticated=true"
+            else
+              echo "codex_authenticated=false"
+            fi
+          else
+            echo "codex_present=false"
+            echo "codex_authenticated=false"
+          fi
+          echo "PROSERVICE_RUNNER_PROBE_END"
