@@ -1,0 +1,81 @@
+{
+  "run_date": "2026-08-01",
+  "execution_model": "GPT-5.6 Sol via GitHub Codex integration",
+  "requested_model": "GPT-5.6 Luna max",
+  "model_substitution_disclosure": "Exact Luna was unavailable in the integration; no output is represented as Luna.",
+  "subagents_used": false,
+  "threads": [
+    {
+      "pr": 20,
+      "comment_id": 5152543364,
+      "filename": "proservice_public_footprint.md",
+      "created_at": "2026-08-01T17:25:49Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/20#issuecomment-5152543364",
+      "word_count": 8144,
+      "sha256": "af079d7696c3c797c46107563947beea13bff81d8fca14aef44d1932e661497d"
+    },
+    {
+      "pr": 21,
+      "comment_id": 5152529673,
+      "filename": "peo_peer_financials.md",
+      "created_at": "2026-08-01T17:22:35Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/21#issuecomment-5152529673",
+      "word_count": 6847,
+      "sha256": "ad3cbad4cd0b7ffbf3dbdcd4ad75656e60d6745c0f2fdeafb963a3acd5694a14"
+    },
+    {
+      "pr": 22,
+      "comment_id": 5152535709,
+      "filename": "peo_industry_structure.md",
+      "created_at": "2026-08-01T17:23:52Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/22#issuecomment-5152535709",
+      "word_count": 7186,
+      "sha256": "7f52b2a9645fd351a139a14f8dc9bba201c660844eb64a99fae07c879ba5e14b"
+    },
+    {
+      "pr": 23,
+      "comment_id": 5152538484,
+      "filename": "hawaii_tam.md",
+      "created_at": "2026-08-01T17:24:33Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/23#issuecomment-5152538484",
+      "word_count": 7094,
+      "sha256": "bc6359a891ed8f24b208c802ff9cf15701764cab9705e46e2e49ca790f8fedd1"
+    },
+    {
+      "pr": 24,
+      "comment_id": 5152536041,
+      "filename": "insurance_benefits_captive.md",
+      "created_at": "2026-08-01T17:23:56Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/24#issuecomment-5152536041",
+      "word_count": 6672,
+      "sha256": "1a24c986723647ac40eb9f81f9c9e2501762071197ab1ac1d146c2b65847aa9f"
+    },
+    {
+      "pr": 26,
+      "comment_id": 5152539541,
+      "filename": "m_and_a_universe.md",
+      "created_at": "2026-08-01T17:24:51Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/26#issuecomment-5152539541",
+      "word_count": 6718,
+      "sha256": "099f496b0d0371f228124427f166d6379a20bd027e22b08b36d0feda865a161c"
+    },
+    {
+      "pr": 27,
+      "comment_id": 5152539096,
+      "filename": "ai_service_workflows_public.md",
+      "created_at": "2026-08-01T17:24:44Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/27#issuecomment-5152539096",
+      "word_count": 7106,
+      "sha256": "92c0621e3384f98df0712e472b45df5f94568e38a0c34287296c75cc5bfe5a69"
+    },
+    {
+      "pr": 28,
+      "comment_id": 5152538870,
+      "filename": "silver_lake_public_playbook.md",
+      "created_at": "2026-08-01T17:24:40Z",
+      "html_url": "https://github.com/anonymousaccountforfun/serviceflow/pull/28#issuecomment-5152538870",
+      "word_count": 6565,
+      "sha256": "c1b3644048f4b4ae29d37c5294c02d350e70f23163a946f60291c30a8d248e64"
+    }
+  ]
+}
