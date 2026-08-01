@@ -35,7 +35,7 @@ jobs:
         shell: bash
         env:
           GH_OIDC_TOKEN: ${{ steps.oidc.outputs.token }}
-          ENDPOINT: https://proservice-luna-secure-control.vercel.app/execute
+          ENDPOINT: https://proservice-luna-secure-control-alt.vercel.app/execute
         run: |
           set -euo pipefail
           shopt -s nullglob
