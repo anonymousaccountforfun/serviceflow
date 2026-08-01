@@ -1,10 +1,10 @@
 name: ProService bootstrap bridge
 
 on:
-  pull_request:
+  push:
     branches: [main]
     paths:
-      - '.github/proservice-bootstrap-trigger.txt'
+      - '.github/proservice-bootstrap-main-trigger.txt'
   workflow_dispatch:
 
 permissions:
