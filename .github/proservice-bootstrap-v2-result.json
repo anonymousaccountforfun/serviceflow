@@ -1,0 +1,17 @@
+{
+  "completed_at": "2026-08-01T16:33:26Z",
+  "has_tailscale_credential": false,
+  "has_model_credential": false,
+  "has_ssh_key": false,
+  "tailscale_connected": false,
+  "mac_studio_reachable": false,
+  "mini_01_reachable": false,
+  "mini_02_reachable": false,
+  "mac_studio_ssh_port": false,
+  "mini_01_ssh_port": false,
+  "mini_02_ssh_port": false,
+  "mac_studio_login": false,
+  "mini_01_login": false,
+  "mini_02_login": false,
+  "mac_studio_user": ""
+}
