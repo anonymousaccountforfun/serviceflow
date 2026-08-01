@@ -1,0 +1,49 @@
+name: ProService orchestrator probe
+
+on:
+  push:
+    branches:
+      - proservice-orchestrator-probe
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Identify runner and capabilities
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          echo "uname=$(uname -a)"
+          echo "pwd=$(pwd)"
+          echo "runner_name=${RUNNER_NAME:-}"
+          echo "runner_os=${RUNNER_OS:-}"
+          echo "runner_arch=${RUNNER_ARCH:-}"
+          for bin in tailscale tailscaled ssh codex python3 uv git; do
+            if command -v "$bin" >/dev/null 2>&1; then
+              echo "$bin=$(command -v "$bin")"
+            else
+              echo "$bin=MISSING"
+            fi
+          done
+          if command -v tailscale >/dev/null 2>&1; then
+            echo "--- tailscale status ---"
+            tailscale status || true
+          fi
+          if command -v codex >/dev/null 2>&1; then
+            echo "--- codex version ---"
+            codex --version || true
+            echo "--- codex auth status ---"
+            codex login status || true
+          fi
+          echo "--- relevant directories ---"
+          for p in "$HOME/work" "$HOME/Downloads" "$HOME/Desktop"; do
+            if [ -d "$p" ]; then
+              echo "DIR $p"
+              find "$p" -maxdepth 2 -iname '*ProService*Research*OS*' -print 2>/dev/null | head -50 || true
+            fi
+          done
