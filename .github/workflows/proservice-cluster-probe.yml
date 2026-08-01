@@ -1,0 +1,58 @@
+name: ProService cluster probe
+
+on:
+  push:
+    branches:
+      - proservice-orchestrator-probe
+  workflow_dispatch:
+
+jobs:
+  probe-self-hosted:
+    name: Probe registered self-hosted runner
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Collect non-secret runner status
+        shell: bash
+        run: |
+          set -u
+          mkdir -p "$RUNNER_TEMP/proservice-probe"
+          REPORT="$RUNNER_TEMP/proservice-probe/status.txt"
+          {
+            echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner_name=${RUNNER_NAME:-unknown}"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            echo "hostname=$(hostname 2>/dev/null || true)"
+            echo "whoami=$(whoami 2>/dev/null || true)"
+            echo "pwd=$(pwd)"
+            echo "uname=$(uname -a 2>/dev/null || true)"
+            echo "computer_name=$(scutil --get ComputerName 2>/dev/null || true)"
+            echo "local_hostname=$(scutil --get LocalHostName 2>/dev/null || true)"
+            echo "tailscale_bin=$(command -v tailscale 2>/dev/null || true)"
+            echo "codex_bin=$(command -v codex 2>/dev/null || true)"
+            echo "python_bin=$(command -v python3 2>/dev/null || true)"
+            echo "git_bin=$(command -v git 2>/dev/null || true)"
+            echo "--- tailscale status ---"
+            tailscale status 2>&1 || true
+            echo "--- codex version ---"
+            codex --version 2>&1 || true
+            echo "--- codex login status ---"
+            codex login status 2>&1 || true
+            echo "--- candidate workdirs ---"
+            ls -ld "$HOME/work" "$HOME/work/ProService_CEO_Research_OS" 2>&1 || true
+          } > "$REPORT"
+          cat "$REPORT"
+      - name: Upload probe report
+        uses: actions/upload-artifact@v4
+        with:
+          name: proservice-cluster-probe-${{ runner.name }}
+          path: ${{ runner.temp }}/proservice-probe/status.txt
+          retention-days: 1
+
+  probe-github-hosted:
+    name: Confirm workflow activation
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - run: echo "GitHub-hosted workflow path is active; self-hosted job separately tests Mac runner availability."
