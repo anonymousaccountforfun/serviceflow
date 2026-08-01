@@ -1,57 +1,33 @@
 name: ProService runner probe
 
 on:
-  push:
+  pull_request:
     branches: [main]
     paths:
-      - '.github/proservice-runner-probe-trigger-main.txt'
+      - '.proservice-runner-probe'
   workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
-  probe-self-hosted:
+  github-hosted-control:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Confirm workflow activation
+        run: echo 'GitHub-hosted control job reached.'
+
+  self-hosted-probe:
     runs-on: self-hosted
     timeout-minutes: 5
     steps:
-      - name: Capture non-secret runner diagnostics
+      - name: Confirm a compatible runner exists
         shell: bash
         run: |
-          set -u
-          mkdir -p probe-output
-          {
-            echo "timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "runner_name=${RUNNER_NAME:-unknown}"
-            echo "runner_os=${RUNNER_OS:-unknown}"
-            echo "runner_arch=${RUNNER_ARCH:-unknown}"
-            echo "hostname=$(hostname)"
-            echo "whoami=$(whoami)"
-            echo "pwd=$(pwd)"
-            echo "uname=$(uname -a)"
-            for tool in codex python3 tailscale ssh git; do
-              if command -v "$tool" >/dev/null 2>&1; then
-                echo "$tool=$(command -v "$tool")"
-              else
-                echo "$tool=missing"
-              fi
-            done
-            if command -v tailscale >/dev/null 2>&1; then
-              echo "tailscale_status_begin"
-              tailscale status 2>&1 || true
-              echo "tailscale_status_end"
-            fi
-            if command -v codex >/dev/null 2>&1; then
-              echo "codex_version=$(codex --version 2>&1 || true)"
-              echo "codex_login_status_begin"
-              codex login status 2>&1 || true
-              echo "codex_login_status_end"
-            fi
-          } > probe-output/runner.txt
-          cat probe-output/runner.txt
-      - name: Upload diagnostics
-        uses: actions/upload-artifact@v4
-        with:
-          name: proservice-runner-probe
-          path: probe-output/runner.txt
-          retention-days: 1
+          set -euo pipefail
+          echo 'Self-hosted runner reached.'
+          if [ "$(uname -s)" = 'Darwin' ]; then echo 'platform=macOS'; else echo 'platform=non-macOS'; fi
+          command -v python3 >/dev/null
+          if command -v codex >/dev/null 2>&1; then echo 'codex=present'; else echo 'codex=absent'; fi
+          if command -v tailscale >/dev/null 2>&1; then echo 'tailscale=present'; else echo 'tailscale=absent'; fi
