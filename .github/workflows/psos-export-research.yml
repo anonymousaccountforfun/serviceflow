@@ -1,0 +1,98 @@
+name: Export ProService Research Threads
+
+on:
+  push:
+    branches:
+      - psos-export-research-20260801
+    paths:
+      - orchestration/psos-export.trigger
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+  pull-requests: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: psos-export-research-20260801
+          fetch-depth: 0
+
+      - name: Export completed independent research comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPOSITORY: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import urllib.request
+
+          repo = os.environ['GH_REPOSITORY']
+          token = os.environ['GH_TOKEN']
+          outputs = {
+              20: (5152543364, 'proservice_public_footprint.md'),
+              21: (5152529673, 'peo_peer_financials.md'),
+              22: (5152535709, 'peo_industry_structure.md'),
+              23: (5152538484, 'hawaii_tam.md'),
+              24: (5152536041, 'insurance_benefits_captive.md'),
+              26: (5152539541, 'm_and_a_universe.md'),
+              27: (5152539096, 'ai_service_workflows_public.md'),
+              28: (5152538870, 'silver_lake_public_playbook.md'),
+          }
+          root = pathlib.Path('research/proservice/outputs')
+          root.mkdir(parents=True, exist_ok=True)
+          manifest = {
+              'run_date': '2026-08-01',
+              'execution_model': 'GPT-5.6 Sol via GitHub Codex integration',
+              'requested_model': 'GPT-5.6 Luna max',
+              'model_substitution_disclosure': 'Exact Luna was unavailable in the integration; no output is represented as Luna.',
+              'subagents_used': False,
+              'threads': [],
+          }
+          headers = {
+              'Authorization': f'Bearer {token}',
+              'Accept': 'application/vnd.github+json',
+              'X-GitHub-Api-Version': '2022-11-28',
+              'User-Agent': 'proservice-ceo-research-os',
+          }
+          for pr, (comment_id, filename) in outputs.items():
+              url = f'https://api.github.com/repos/{repo}/issues/comments/{comment_id}'
+              req = urllib.request.Request(url, headers=headers)
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  payload = json.load(response)
+              body = payload.get('body', '').strip() + '\n'
+              if len(body.split()) < 1000:
+                  raise RuntimeError(f'Comment {comment_id} for PR {pr} is unexpectedly short: {len(body.split())} words')
+              path = root / filename
+              path.write_text(body, encoding='utf-8')
+              manifest['threads'].append({
+                  'pr': pr,
+                  'comment_id': comment_id,
+                  'filename': filename,
+                  'created_at': payload.get('created_at'),
+                  'html_url': payload.get('html_url'),
+                  'word_count': len(body.split()),
+                  'sha256': hashlib.sha256(body.encode()).hexdigest(),
+              })
+          (root / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n', encoding='utf-8')
+          print(json.dumps(manifest, indent=2))
+          PY
+
+      - name: Commit exported research
+        run: |
+          git config user.name "ProService Research OS"
+          git config user.email "actions@users.noreply.github.com"
+          git add research/proservice/outputs
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Persist completed ProService research threads"
+            git push origin HEAD:psos-export-research-20260801
+          fi
