@@ -1,0 +1,32 @@
+name: ProService runner probe
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  probe:
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    steps:
+      - name: Print runner identity
+        run: |
+          set -euxo pipefail
+          echo "hostname=$(hostname)"
+          echo "whoami=$(whoami)"
+          uname -a
+          sw_vers || true
+          command -v tailscale || true
+          tailscale status || true
+          command -v codex || true
+          codex login status || true
+          pwd
+          env | sort | sed -E 's/(TOKEN|KEY|SECRET|PASSWORD)=.*/\1=<redacted>/I'
