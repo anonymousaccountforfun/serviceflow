@@ -1,0 +1,191 @@
+name: ProService safe tailnet bridge
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+env:
+  HAS_TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY != '' }}
+  HAS_TS_AUTHKEY: ${{ secrets.TS_AUTHKEY != '' }}
+  HAS_TS_OAUTH: ${{ secrets.TS_OAUTH_CLIENT_ID != '' && secrets.TS_OAUTH_SECRET != '' }}
+  HAS_TAILSCALE_OAUTH: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID != '' && secrets.TAILSCALE_OAUTH_SECRET != '' }}
+  HAS_PROSERVICE_SSH_KEY: ${{ secrets.PROSERVICE_SSH_PRIVATE_KEY != '' }}
+  HAS_MAC_SSH_KEY: ${{ secrets.MAC_SSH_PRIVATE_KEY != '' }}
+  HAS_SSH_KEY: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+  HAS_PROSERVICE_SSH_USER: ${{ secrets.PROSERVICE_SSH_USER != '' }}
+  HAS_MAC_SSH_USER: ${{ secrets.MAC_SSH_USER != '' }}
+  HAS_SSH_USER: ${{ secrets.SSH_USER != '' }}
+
+jobs:
+  bridge:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Report credential availability without values
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "tailscale_authkey_configured=$HAS_TAILSCALE_AUTHKEY"
+          echo "ts_authkey_configured=$HAS_TS_AUTHKEY"
+          echo "ts_oauth_configured=$HAS_TS_OAUTH"
+          echo "tailscale_oauth_configured=$HAS_TAILSCALE_OAUTH"
+          if [[ "$HAS_PROSERVICE_SSH_KEY" == true || "$HAS_MAC_SSH_KEY" == true || "$HAS_SSH_KEY" == true ]]; then
+            echo "ssh_private_key_configured=true"
+          else
+            echo "ssh_private_key_configured=false"
+          fi
+          if [[ "$HAS_PROSERVICE_SSH_USER" == true || "$HAS_MAC_SSH_USER" == true || "$HAS_SSH_USER" == true ]]; then
+            echo "ssh_user_configured=true"
+          else
+            echo "ssh_user_configured=false"
+          fi
+
+      - name: Join tailnet with TAILSCALE_AUTHKEY
+        id: ts_primary
+        if: env.HAS_TAILSCALE_AUTHKEY == 'true'
+        continue-on-error: true
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          tags: tag:ci
+
+      - name: Join tailnet with TS_AUTHKEY
+        id: ts_secondary
+        if: steps.ts_primary.outcome != 'success' && env.HAS_TS_AUTHKEY == 'true'
+        continue-on-error: true
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          tags: tag:ci
+
+      - name: Join tailnet with TS OAuth
+        id: ts_oauth
+        if: steps.ts_primary.outcome != 'success' && steps.ts_secondary.outcome != 'success' && env.HAS_TS_OAUTH == 'true'
+        continue-on-error: true
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Join tailnet with TAILSCALE OAuth
+        id: tailscale_oauth
+        if: steps.ts_primary.outcome != 'success' && steps.ts_secondary.outcome != 'success' && steps.ts_oauth.outcome != 'success' && env.HAS_TAILSCALE_OAUTH == 'true'
+        continue-on-error: true
+        uses: tailscale/github-action@v3
+        with:
+          oauth-client-id: ${{ secrets.TAILSCALE_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TAILSCALE_OAUTH_SECRET }}
+          tags: tag:ci
+
+      - name: Discover targets without exposing addresses
+        id: discover
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v tailscale >/dev/null 2>&1 || ! tailscale ip -4 >/dev/null 2>&1; then
+            echo "tailnet_connected=false"
+            echo "connected=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "tailnet_connected=true"
+          echo "connected=true" >> "$GITHUB_OUTPUT"
+          tailscale status --json > /tmp/ts-status.json
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          data = json.loads(Path('/tmp/ts-status.json').read_text())
+          peers = list((data.get('Peer') or {}).values())
+          rows = []
+          for p in peers:
+              host = (p.get('HostName') or '').strip()
+              dns = (p.get('DNSName') or '').strip().rstrip('.')
+              online = bool(p.get('Online'))
+              rows.append((host, dns, online))
+          def pick(exact, contains):
+              for host, dns, online in rows:
+                  names = {host.lower(), dns.lower(), dns.split('.')[0].lower() if dns else ''}
+                  if exact in names:
+                      return dns or host, online
+              for host, dns, online in rows:
+                  text = f'{host} {dns}'.lower()
+                  if any(x in text for x in contains):
+                      return dns or host, online
+              return '', False
+          targets = {
+              'MAC_STUDIO_TARGET': pick('mac-studio', ['mac-studio', 'macstudio', 'studio']),
+              'MINI_01_TARGET': pick('mini-01', ['mini-01', 'mini01', 'mac-mini-1', 'macmini1']),
+              'MINI_02_TARGET': pick('mini-02', ['mini-02', 'mini02', 'mac-mini-2', 'macmini2']),
+          }
+          with open(os.environ['GITHUB_ENV'], 'a') as f:
+              for key, (value, online) in targets.items():
+                  if value:
+                      f.write(f'{key}={value}\n')
+                  print(f'{key.lower()}_discovered={str(bool(value)).lower()}')
+                  print(f'{key.lower()}_online={str(bool(value and online)).lower()}')
+          PY
+
+      - name: Configure optional SSH key without disclosure
+        if: steps.discover.outputs.connected == 'true'
+        shell: bash
+        env:
+          PROSERVICE_SSH_PRIVATE_KEY: ${{ secrets.PROSERVICE_SSH_PRIVATE_KEY }}
+          MAC_SSH_PRIVATE_KEY: ${{ secrets.MAC_SSH_PRIVATE_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          PROSERVICE_SSH_USER: ${{ secrets.PROSERVICE_SSH_USER }}
+          MAC_SSH_USER: ${{ secrets.MAC_SSH_USER }}
+          SSH_USER_SECRET: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          key="${PROSERVICE_SSH_PRIVATE_KEY:-${MAC_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY:-}}}"
+          user="${PROSERVICE_SSH_USER:-${MAC_SSH_USER:-${SSH_USER_SECRET:-}}}"
+          if [[ -n "$key" ]]; then
+            install -d -m 700 "$HOME/.ssh"
+            printf '%s\n' "$key" > "$HOME/.ssh/id_proservice"
+            chmod 600 "$HOME/.ssh/id_proservice"
+            echo "SSH_IDENTITY_FILE=$HOME/.ssh/id_proservice" >> "$GITHUB_ENV"
+          fi
+          if [[ -n "$user" ]]; then
+            echo "CONFIGURED_SSH_USER=$user" >> "$GITHUB_ENV"
+          fi
+
+      - name: Probe target reachability and SSH without command execution
+        if: steps.discover.outputs.connected == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe_host() {
+            label="$1"
+            host="$2"
+            if [[ -z "$host" ]]; then
+              echo "${label}_ping=false"
+              echo "${label}_ssh_port=false"
+              echo "${label}_ssh_auth=false"
+              return
+            fi
+            if tailscale ping --timeout=5s "$host" >/dev/null 2>&1; then echo "${label}_ping=true"; else echo "${label}_ping=false"; fi
+            if timeout 6 bash -c "</dev/tcp/$host/22" >/dev/null 2>&1; then echo "${label}_ssh_port=true"; else echo "${label}_ssh_port=false"; fi
+            success=false
+            users=()
+            if [[ -n "${CONFIGURED_SSH_USER:-}" ]]; then users+=("$CONFIGURED_SSH_USER"); fi
+            users+=(brian ebrianhughes brianhughes bhughes admin)
+            for user in "${users[@]}"; do
+              if [[ -n "${SSH_IDENTITY_FILE:-}" ]] && timeout 8 ssh -i "$SSH_IDENTITY_FILE" -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=5 "$user@$host" true >/dev/null 2>&1; then
+                success=true
+                break
+              fi
+              if command -v tailscale >/dev/null 2>&1 && timeout 8 tailscale ssh "$user@$host" true >/dev/null 2>&1; then
+                success=true
+                break
+              fi
+            done
+            echo "${label}_ssh_auth=$success"
+          }
+          probe_host mac_studio "${MAC_STUDIO_TARGET:-}"
+          probe_host mini_01 "${MINI_01_TARGET:-}"
+          probe_host mini_02 "${MINI_02_TARGET:-}"
