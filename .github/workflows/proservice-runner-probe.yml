@@ -14,9 +14,18 @@ jobs:
   github-hosted-control:
     runs-on: ubuntu-latest
     timeout-minutes: 3
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
-      - name: Confirm workflow activation
-        run: echo 'GitHub-hosted control job reached.'
+      - name: Confirm workflow and protected credential availability
+        shell: bash
+        run: |
+          echo 'GitHub-hosted control job reached.'
+          [ -n "${OPENAI_API_KEY:-}" ] && echo 'openai_key=present' || echo 'openai_key=absent'
+          [ -n "${CODEX_API_KEY:-}" ] && echo 'codex_key=present' || echo 'codex_key=absent'
+          [ -n "${ANTHROPIC_API_KEY:-}" ] && echo 'anthropic_key=present' || echo 'anthropic_key=absent'
 
   self-hosted-probe:
     runs-on: self-hosted
