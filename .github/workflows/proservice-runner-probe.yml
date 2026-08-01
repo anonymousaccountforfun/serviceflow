@@ -1,5 +1,6 @@
 name: ProService runner probe
 
+# Refreshed 2026-08-01 to trigger a non-secret self-hosted runner availability check.
 on:
   pull_request:
     branches: [main]
