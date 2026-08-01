@@ -1,0 +1,116 @@
+name: ProService bootstrap v2
+
+on:
+  push:
+    branches: [proservice-bootstrap-v2]
+    paths:
+      - '.github/proservice-bootstrap-v2-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAILSCALE_AUTHKEY: ${{ secrets.TAILSCALE_AUTHKEY }}
+      TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      CODEX_API_KEY: ${{ secrets.CODEX_API_KEY }}
+      SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+      MAC_SSH_PRIVATE_KEY: ${{ secrets.MAC_SSH_PRIVATE_KEY }}
+      PROSERVICE_SSH_PRIVATE_KEY: ${{ secrets.PROSERVICE_SSH_PRIVATE_KEY }}
+    steps:
+      - name: Test tailnet and SSH bridge
+        shell: bash
+        run: |
+          set -u
+          AUTHKEY="${TAILSCALE_AUTHKEY:-${TS_AUTHKEY:-}}"
+          SSHKEY="${PROSERVICE_SSH_PRIVATE_KEY:-${MAC_SSH_PRIVATE_KEY:-${SSH_PRIVATE_KEY:-}}}"
+          bool() { if [ -n "${1:-}" ]; then printf true; else printf false; fi; }
+          HAS_TS=$(bool "$AUTHKEY")
+          HAS_MODEL=false; [ -n "${OPENAI_API_KEY:-${CODEX_API_KEY:-}}" ] && HAS_MODEL=true
+          HAS_SSH_KEY=$(bool "$SSHKEY")
+          TS_UP=false
+          MAC_STUDIO_PING=false; MINI_01_PING=false; MINI_02_PING=false
+          MAC_STUDIO_SSH_PORT=false; MINI_01_SSH_PORT=false; MINI_02_SSH_PORT=false
+          MAC_STUDIO_LOGIN=false; MINI_01_LOGIN=false; MINI_02_LOGIN=false
+          MAC_STUDIO_USER=''
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+          if [ -n "$SSHKEY" ]; then
+            printf '%s\n' "$SSHKEY" > "$HOME/.ssh/proservice_key"
+            chmod 600 "$HOME/.ssh/proservice_key"
+          fi
+
+          if [ -n "$AUTHKEY" ]; then
+            curl -fsSL https://tailscale.com/install.sh | sh >/dev/null 2>&1 || true
+            if sudo tailscale up --authkey="$AUTHKEY" --hostname="proservice-gh-${GITHUB_RUN_ID}" --accept-dns=true >/dev/null 2>&1; then
+              TS_UP=true
+              tailscale ping --timeout=5s mac-studio >/dev/null 2>&1 && MAC_STUDIO_PING=true || true
+              tailscale ping --timeout=5s mini-01 >/dev/null 2>&1 && MINI_01_PING=true || true
+              tailscale ping --timeout=5s mini-02 >/dev/null 2>&1 && MINI_02_PING=true || true
+              nc -z -w 5 mac-studio 22 >/dev/null 2>&1 && MAC_STUDIO_SSH_PORT=true || true
+              nc -z -w 5 mini-01 22 >/dev/null 2>&1 && MINI_01_SSH_PORT=true || true
+              nc -z -w 5 mini-02 22 >/dev/null 2>&1 && MINI_02_SSH_PORT=true || true
+
+              SSH_COMMON=(-o BatchMode=yes -o StrictHostKeyChecking=no -o ConnectTimeout=6)
+              if [ -n "$SSHKEY" ]; then
+                SSH_COMMON+=(-i "$HOME/.ssh/proservice_key")
+                ssh "${SSH_COMMON[@]}" satoshiclawdomoto@mini-01 'true' >/dev/null 2>&1 && MINI_01_LOGIN=true || true
+                ssh "${SSH_COMMON[@]}" brianmacmini2@mini-02 'true' >/dev/null 2>&1 && MINI_02_LOGIN=true || true
+                for u in brianhughes brian admin ebrianhughes; do
+                  if ssh "${SSH_COMMON[@]}" "$u@mac-studio" 'true' >/dev/null 2>&1; then MAC_STUDIO_LOGIN=true; MAC_STUDIO_USER="$u"; break; fi
+                done
+              else
+                tailscale ssh satoshiclawdomoto@mini-01 'true' >/dev/null 2>&1 && MINI_01_LOGIN=true || true
+                tailscale ssh brianmacmini2@mini-02 'true' >/dev/null 2>&1 && MINI_02_LOGIN=true || true
+                for u in brianhughes brian admin ebrianhughes; do
+                  if tailscale ssh "$u@mac-studio" 'true' >/dev/null 2>&1; then MAC_STUDIO_LOGIN=true; MAC_STUDIO_USER="$u"; break; fi
+                done
+              fi
+            fi
+          fi
+
+          cat > /tmp/proservice-bootstrap-v2-result.json <<EOF
+          {
+            "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "has_tailscale_credential": $HAS_TS,
+            "has_model_credential": $HAS_MODEL,
+            "has_ssh_key": $HAS_SSH_KEY,
+            "tailscale_connected": $TS_UP,
+            "mac_studio_reachable": $MAC_STUDIO_PING,
+            "mini_01_reachable": $MINI_01_PING,
+            "mini_02_reachable": $MINI_02_PING,
+            "mac_studio_ssh_port": $MAC_STUDIO_SSH_PORT,
+            "mini_01_ssh_port": $MINI_01_SSH_PORT,
+            "mini_02_ssh_port": $MINI_02_SSH_PORT,
+            "mac_studio_login": $MAC_STUDIO_LOGIN,
+            "mini_01_login": $MINI_01_LOGIN,
+            "mini_02_login": $MINI_02_LOGIN,
+            "mac_studio_user": "${MAC_STUDIO_USER}"
+          }
+          EOF
+          cat /tmp/proservice-bootstrap-v2-result.json
+
+      - name: Publish boolean-only result to probe branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone -q --branch proservice-bootstrap-v2 "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
+          cd repo
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          mkdir -p .github
+          cp /tmp/proservice-bootstrap-v2-result.json .github/proservice-bootstrap-v2-result.json
+          git add .github/proservice-bootstrap-v2-result.json
+          git commit -m 'ci: publish ProService bootstrap v2 result' || exit 0
+          for attempt in 1 2 3; do
+            git pull --rebase origin proservice-bootstrap-v2 >/dev/null 2>&1 || true
+            git push origin HEAD:proservice-bootstrap-v2 && exit 0
+            sleep 2
+          done
+          exit 1
