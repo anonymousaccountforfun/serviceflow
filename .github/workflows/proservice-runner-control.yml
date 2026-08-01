@@ -1,0 +1,77 @@
+name: ProService runner control
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+    paths:
+      - '.github/proservice-runner-trigger.txt'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query repository self-hosted runners
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=$(curl -sS -o runners.json -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/runners")
+          echo "http_status=$status"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('runners.json')
+          try:
+              data=json.loads(p.read_text())
+          except Exception as e:
+              print('json_error=',repr(e))
+              raise SystemExit(0)
+          print('total_count=', data.get('total_count'))
+          for r in data.get('runners', []):
+              print(json.dumps({
+                  'name': r.get('name'),
+                  'os': r.get('os'),
+                  'status': r.get('status'),
+                  'busy': r.get('busy'),
+                  'labels': [x.get('name') for x in r.get('labels', [])],
+              }, sort_keys=True))
+          if 'runners' not in data:
+              print(json.dumps(data, sort_keys=True)[:2000])
+          PY
+
+  mac_probe:
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Report capability presence only
+        shell: bash
+        run: |
+          set -uo pipefail
+          echo "runner_os=${RUNNER_OS:-unknown}"
+          echo "runner_arch=${RUNNER_ARCH:-unknown}"
+          for bin in tailscale ssh codex python3 uv git; do
+            if command -v "$bin" >/dev/null 2>&1; then
+              echo "$bin=present"
+            else
+              echo "$bin=missing"
+            fi
+          done
+          if command -v tailscale >/dev/null 2>&1; then
+            tailscale status --json >/dev/null 2>&1 && echo "tailnet=connected" || echo "tailnet=not_connected"
+          fi
+          if command -v codex >/dev/null 2>&1; then
+            codex login status >/dev/null 2>&1 && echo "codex_auth=ready" || echo "codex_auth=not_ready"
+          fi
+          [ -d "$HOME/work/ProService_CEO_Research_OS" ] && echo "research_os=present" || echo "research_os=absent"
