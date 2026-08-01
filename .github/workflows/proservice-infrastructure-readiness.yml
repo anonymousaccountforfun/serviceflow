@@ -1,0 +1,78 @@
+name: Temporary ProService infrastructure readiness
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inventory:
+    name: Inventory authorized self-hosted runners
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query runner inventory without secrets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl -sS -o runners.json -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/runners")
+          echo "http_status=$status"
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+          data=json.loads(Path('runners.json').read_text())
+          if 'runners' not in data:
+              print(json.dumps(data, sort_keys=True)[:2000])
+          else:
+              print(f"total_count={data.get('total_count', 0)}")
+              for r in data.get('runners', []):
+                  print(json.dumps({
+                      'name': r.get('name'),
+                      'os': r.get('os'),
+                      'status': r.get('status'),
+                      'busy': r.get('busy'),
+                      'labels': [x.get('name') for x in r.get('labels', [])],
+                  }, sort_keys=True))
+          PY
+
+  probe:
+    name: Probe one authorized Mac runner
+    runs-on: [self-hosted]
+    timeout-minutes: 5
+    steps:
+      - name: Report non-sensitive readiness only
+        shell: bash
+        run: |
+          set -euo pipefail
+          bool_command() { command -v "$1" >/dev/null 2>&1 && echo present || echo missing; }
+          echo "runner_os=${RUNNER_OS:-unknown}"
+          echo "runner_arch=${RUNNER_ARCH:-unknown}"
+          echo "tailscale_binary=$(bool_command tailscale)"
+          if command -v tailscale >/dev/null 2>&1 && tailscale status >/dev/null 2>&1; then
+            echo "tailscale_state=connected"
+          else
+            echo "tailscale_state=not_ready"
+          fi
+          echo "codex_binary=$(bool_command codex)"
+          if command -v codex >/dev/null 2>&1 && codex login status >/dev/null 2>&1; then
+            echo "codex_auth=ready"
+          else
+            echo "codex_auth=not_ready"
+          fi
+          echo "python3=$(bool_command python3)"
+          if [ -d "$HOME/work/ProService_CEO_Research_OS" ]; then
+            echo "research_os_path=present"
+          else
+            echo "research_os_path=missing"
+          fi
