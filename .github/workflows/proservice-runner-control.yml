@@ -1,0 +1,139 @@
+name: ProService runner control
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/proservice-runner-trigger.txt'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  inventory:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Query runner inventory and credential presence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENAI_PRESENT: ${{ secrets.OPENAI_API_KEY != '' }}
+          AI_GATEWAY_PRESENT: ${{ secrets.AI_GATEWAY_API_KEY != '' }}
+          TS_AUTHKEY_PRESENT: ${{ secrets.TS_AUTHKEY != '' }}
+          TAILSCALE_AUTHKEY_PRESENT: ${{ secrets.TAILSCALE_AUTHKEY != '' }}
+          SSH_PRIVATE_KEY_PRESENT: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+          MAC_SSH_PRIVATE_KEY_PRESENT: ${{ secrets.MAC_SSH_PRIVATE_KEY != '' }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          status=$(curl -sS -o runners.json -w '%{http_code}' \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$REPO/actions/runners")
+          export HTTP_STATUS="$status"
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path('runners.json')
+          try:
+              data=json.loads(p.read_text())
+          except Exception:
+              data={}
+          result={
+              'http_status': os.environ.get('HTTP_STATUS',''),
+              'total_count': data.get('total_count'),
+              'runners': [{
+                  'name': r.get('name'),
+                  'os': r.get('os'),
+                  'status': r.get('status'),
+                  'busy': r.get('busy'),
+                  'labels': [x.get('name') for x in r.get('labels', [])],
+              } for r in data.get('runners', [])],
+              'message': data.get('message') if 'runners' not in data else None,
+              'credential_presence': {
+                  'openai_api_key': os.environ.get('OPENAI_PRESENT') == 'true',
+                  'ai_gateway_api_key': os.environ.get('AI_GATEWAY_PRESENT') == 'true',
+                  'ts_authkey': os.environ.get('TS_AUTHKEY_PRESENT') == 'true',
+                  'tailscale_authkey': os.environ.get('TAILSCALE_AUTHKEY_PRESENT') == 'true',
+                  'ssh_private_key': os.environ.get('SSH_PRIVATE_KEY_PRESENT') == 'true',
+                  'mac_ssh_private_key': os.environ.get('MAC_SSH_PRIVATE_KEY_PRESENT') == 'true',
+              },
+          }
+          Path('/tmp/proservice-runner-inventory.json').write_text(json.dumps(result, indent=2, sort_keys=True))
+          PY
+      - name: Publish hosted-runner marker
+        shell: bash
+        run: |
+          git clone -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
+          cd repo
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          mkdir -p .github
+          cp /tmp/proservice-runner-inventory.json .github/proservice-runner-inventory-result.json
+          printf 'hosted_runner_completed=true\ncompleted_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/proservice-runner-hosted-status.txt
+          git add .github/proservice-runner-inventory-result.json .github/proservice-runner-hosted-status.txt
+          git commit -m 'ci: publish temporary ProService runner inventory result' || exit 0
+          git push origin HEAD:main
+
+  mac_probe:
+    runs-on: self-hosted
+    timeout-minutes: 8
+    steps:
+      - name: Publish self-hosted capability marker
+        shell: bash
+        run: |
+          set -uo pipefail
+          tmp=$(mktemp)
+          {
+            echo "self_hosted_runner_completed=true"
+            echo "completed_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "runner_os=${RUNNER_OS:-unknown}"
+            echo "runner_arch=${RUNNER_ARCH:-unknown}"
+            for bin in tailscale ssh codex python3 uv git; do
+              command -v "$bin" >/dev/null 2>&1 && echo "$bin=present" || echo "$bin=missing"
+            done
+            if command -v tailscale >/dev/null 2>&1; then
+              tailscale status --json >/dev/null 2>&1 && echo "tailnet=connected" || echo "tailnet=not_connected"
+            fi
+            if command -v codex >/dev/null 2>&1; then
+              codex login status >/dev/null 2>&1 && echo "codex_auth=ready" || echo "codex_auth=not_ready"
+            fi
+            [ -d "$HOME/work/ProService_CEO_Research_OS" ] && echo "research_os=present" || echo "research_os=absent"
+          } > "$tmp"
+          git clone -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
+          cd repo
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          cp "$tmp" .github/proservice-runner-mac-status.txt
+          git add .github/proservice-runner-mac-status.txt
+          git commit -m 'ci: publish temporary ProService self-hosted runner result' || exit 0
+          git push origin HEAD:main
+
+  observer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    needs: inventory
+    steps:
+      - name: Wait for a self-hosted marker
+        shell: bash
+        run: sleep 360
+      - name: Publish observation
+        shell: bash
+        run: |
+          git clone -q "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" repo
+          cd repo
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          if [ -f .github/proservice-runner-mac-status.txt ]; then
+            observed=true
+          else
+            observed=false
+          fi
+          printf 'self_hosted_marker_observed=%s\nobserved_at=%s\n' "$observed" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .github/proservice-runner-observer-status.txt
+          git add .github/proservice-runner-observer-status.txt
+          git commit -m 'ci: publish temporary ProService runner observation' || exit 0
+          git push origin HEAD:main
