@@ -1,10 +1,11 @@
 name: ProService runner probe
 
 on:
-  pull_request:
+  push:
     branches: [main]
     paths:
-      - '.github/proservice-runner-probe-trigger.txt'
+      - '.github/proservice-runner-probe-trigger-main.txt'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,7 +33,17 @@ jobs:
             echo "python3=$(command -v python3 || true)"
             echo "tailscale=$(command -v tailscale || true)"
             if command -v tailscale >/dev/null 2>&1; then
-              echo "tailscale_self=$(tailscale status --self --json 2>/dev/null | python3 -c 'import json,sys; d=json.load(sys.stdin); s=d.get("Self",{}); print({"HostName":s.get("HostName"),"DNSName":s.get("DNSName"),"TailscaleIPs":s.get("TailscaleIPs"),"Online":s.get("Online")})' 2>/dev/null || true)"
+              tailscale status --json 2>/dev/null | python3 - <<'PY'
+import json,sys
+try:
+    d=json.load(sys.stdin); s=d.get('Self',{})
+    print('tailscale_hostname='+str(s.get('HostName')))
+    print('tailscale_dns='+str(s.get('DNSName')))
+    print('tailscale_ips='+str(s.get('TailscaleIPs')))
+    print('tailscale_online='+str(s.get('Online')))
+except Exception as e:
+    print('tailscale_status_error='+repr(e))
+PY
             fi
             echo "codex_login_status_begin"
             codex login status 2>&1 || true
